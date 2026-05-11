@@ -31,8 +31,11 @@
 
 站点的价格更新太快了..我努力让这些价格是准确的.  
 
-[hvoy网站](https://hvoy.ai/#sonnet-4-6-ranking) 现在上面增加排行, 有后台不停检测端口, 并且更新实时价格,可以从排行榜上挑选.
+[禾维AI](https://hvoy.ai/#sonnet-4-6-ranking) 现在上面增加排行, 有后台不停检测端口, 并且更新实时价格, 可以从排行榜上挑选合适的中转站
 
+至于具体的检测代码, 已经不开源了. 
+
+希望看检测原理的朋友, 推荐这个[api-relay-audit](https://github.com/toby-bridges/api-relay-audit)这个项目, 很有参考价值.
 
 ![banner](pic/banner.png)
 
