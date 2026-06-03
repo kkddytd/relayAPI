@@ -120,6 +120,15 @@ btw:这个站点的域名老容易打错.
 新用户有一个小福利, 15 块钱可以卖 30 块钱的量.
 此外, 最低充 20 人民币.
 
+### [智惠API](https://www.hvoy.ai/relaySite?name=%E6%99%BA%E6%83%A0API&source=git)
+
+这个站属于2026年新开的一个站点，提供Claude, GPT ，Gemini三家的API.
+
+Max满血渠道的 Opus4.8 价格是 ¥8.12(进)40.62(出)/一百万Token，
+
+GPT-5.5模型价格是 ¥1.25(进)7.5(出)/一百万Token, 价格还算不错, 速度也可以.
+
+现在在 [hvoy](https://www.hvoy.ai/free-tokens) 还能拿到5人民币的兑换码, 推荐去试下.
 
 ### [DawCode](https://www.hvoy.ai/relaySite?name=DawCode&source=git)
 2026年新开的一个站点, 提供Claude, GPT,Gemini三种类型的API.
@@ -207,15 +216,7 @@ AOK是一个新账, 站长人比较爽快,服务还行.
 
 网站只支持通过stripe的支付宝付款.
 
-### [智惠API](https://www.hvoy.ai/relaySite?name=%E6%99%BA%E6%83%A0API&source=git)
 
-这个站属于2026年新开的一个站点，提供Claude, GPT ，Gemini三家的API.
-
-Max满血渠道的 Opus4.8 价格是 ¥8.12(进)40.62(出)/一百万Token，
-
-GPT-5.5模型价格是 ¥1.25(进)7.5(出)/一百万Token, 价格还算不错, 速度也可以.
-
-这个站点比较有特色的是，他们的社群里时不时有空投免费模型活动，感兴趣的可以参与一下。
 
 ## 中性
 
