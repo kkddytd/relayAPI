@@ -265,7 +265,7 @@ GPT5.5的价格是0.9, 挺稳定的.
 
 
 
-### [aigocode.com](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Faigocode.com%2Finvite%2FZJS7W25Q&name=aigocode.com&source=git)
+### [aigocode.com](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Faigocode.com%2Finvite%2FZJS7W25Q&name=AlGoCode&source=git)
 aigocode是一个口碑还不错的APIKEY网站, 目前没有发现用低价模型代替高级模型的情况. 我自己用的这段时间稳定性还行.
 模型方面只有Claude, GPT和 Gemini. 支持 Claude 4.6 & Codex 5.3 & Gemini 3.
 
