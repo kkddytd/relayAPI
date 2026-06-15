@@ -1,9 +1,15 @@
 # AI API中转站推荐与评测
 
 ## 写在前面的话
-2026-05-09  更新
-目前最好的策略, 大概率是自己买一个土区的GPT Plus, 每个月80块钱左右. 
-方法是自己注册一个土区的apple id, 然后去[mtcgame](https://www.mtcgame.com/zh/apple-store/itunes-hediye-karti)这里买一个礼品卡, 或者去闲鱼上买礼品卡,价格稍贵一点, 但是也能接受. 
+
+
+2026-6-15  更新
+
+~~目前最好的策略, 大概率是自己买一个土区的GPT Plus, 每个月80块钱左右.~~
+~~方法是自己注册一个土区的apple id, 然后去[mtcgame](https://www.mtcgame.com/zh/apple-store/itunes-hediye-karti)这里买一个礼品卡, 或者去闲鱼上买礼品卡,价格稍贵一点, 但是也能接受. ~~
+
+土区涨价了, 只有菲区还划算点. 菲区麻烦点, 简单点就用美区或者别的区.
+有人测过, 20刀的plus大概能用出400刀的token. 如果加上各种重置, 海鲜市场上买个重置, 实际token更多, 还是很划算.
 
 弄完之后, 挂个机场, 用codex, 不管是写电脑, 还是聊天,或者日常很多事情(譬如给照片打个水印, 写个文章)都很方便.
 基本上够自己用了.
@@ -168,7 +174,6 @@ GPT5.5 价格是1(进)6(出)/一百万Token. 挺公道的价格.
 总体来说是个很不错的站.
 
 
-
 ### [DeRouter](https://www.hvoy.ai/relaySite?&name=DeRouter&source=git)
 这个站点很有意思, 很像之前的p2p, 为创新鼓掌.
 
@@ -207,23 +212,8 @@ AOK是一个新账, 站长人比较爽快,服务还行.
 网站只支持通过stripe的支付宝付款.
 
 
-
 ## 中性
 
-### [ClaudeCN](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fclaudecn.top%2Fregister%3Faff%3D3Uez&name=ClaudeCN&source=git)
-大概是2025年开始运营的一个站, 稳定性应该还行把.
-
-支持Claude, Gemini,GPT和minimax.
-
-Sonnet4.6 最便宜的是人民币¥4.8(进)24(出)/一百万Token. Opus4.6 最便宜是¥8(进)40(出)/一百万Token.
-站点使用起来感觉还行. 
-
-最少充1块钱,可以试试. 20以上就有VIP等级.
-
-### [aicodemirror](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fwww.aicodemirror.com%2Fregister%3Finvitecode%3D7C06QL&name=aicodemirror&source=git)
-aicodemirror 是一个老牌的中转站, 之前使用的人很多
-目前支持Claude, GPT, Gemini 三种api. 
-价格方面,Claude是官方渠道是3.8折, 如果是反代出来的接口目前是1.9折. codex和Gemini很便宜, 分别是0.6折和1折.
 
 ### [Chintao AI](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fchintao.cn%2Fregister%3Faff%3DRF8V&name=Chintao%20AI&source=git)
 很新的一个站点. 2026年3月份做的. 
@@ -254,7 +244,6 @@ ModCon是25年11月成立的一个站, GPT系列做的还不错.
 GPT5.5的价格是0.9, 挺稳定的.
 
 
-
 ### [aigocode.com](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Faigocode.com%2Finvite%2FZJS7W25Q&name=AlGoCode&source=git)
 aigocode是一个口碑还不错的APIKEY网站, 目前没有发现用低价模型代替高级模型的情况. 我自己用的这段时间稳定性还行.
 模型方面只有Claude, GPT和 Gemini. 支持 Claude 4.6 & Codex 5.3 & Gemini 3.
@@ -278,8 +267,6 @@ GPT5.3的价格是人民币¥1.5(进)9(出)/一百万Token.
 稳定性非常不错,  而且都是原厂模型, 直接使用就行. 
 
 缺点是价格比较贵, 很多情况下比原厂价格还要贵5%. 
-
-
 
 
 
