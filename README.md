@@ -128,23 +128,6 @@ btw:这个站点的域名老容易打错.
 此外, 最低充 20 人民币.
 
 
-### [智惠API](https://www.hvoy.ai/relaySite?name=%E6%99%BA%E6%83%A0API&source=git)
-
-这个站属于2026年新开的一个站点，提供Claude, GPT ，Gemini三家的API.
-
-Max满血渠道的 Opus4.8 价格是 ¥8.12(进)40.62(出)/一百万Token，
-
-GPT-5.5模型价格是 ¥1.25(进)7.5(出)/一百万Token, 价格还算不错, 速度也可以.
-
-现在在 [hvoy](https://www.hvoy.ai/free-tokens) 还能拿到5人民币的兑换码, 推荐去试下.
-
-### [Lumin AI](https://hvoy.ai/relaySite?id=39827&name=Lumin+AI&source=lb&model_tab=opus48&display_algo=featured&position=topn)
-这个站点2026年新开的站，主打性价比路线，可能因为站长也是程序员，目前对外宣传不多，支持claude和gpt，主打了kiro这类性价比渠道，满血也是有的。
-
-kiro价格是¥2(进)10(出)/一百万Token，满血是¥6(进)30(出)/一百万Token，gpt-pro 是¥2(进)12(出)/一百万Token。
-
-他这里5元起充，有问题的时候经常直接远程给看，效率高售后体验好。
-
 ### [Unity2.ai](https://hvoy.ai/relaySite?id=39968&name=unity2&source=lb&model_tab=opus48&display_algo=featured&position=top12)
 这个站最近在 L 站、V2EX 和几个开发者群里出现得比较多。
 
@@ -157,6 +140,23 @@ kiro价格是¥2(进)10(出)/一百万Token，满血是¥6(进)30(出)/一百万
 他的站长也经常在[hvoy](https://hvoy.ai/free-tokens/invite-codes)的免费领兑换码页面投放兑换码，有需要的可以去领。
 
 建议先拿赠送额度跑一下自己的真实场景，再决定要不要充值或订阅。
+
+### [Lumin AI](https://hvoy.ai/relaySite?id=39827&name=Lumin+AI&source=lb&model_tab=opus48&display_algo=featured&position=topn)
+这个站点2026年新开的站，主打性价比路线，可能因为站长也是程序员，目前对外宣传不多，支持claude和gpt，主打了kiro这类性价比渠道，满血也是有的。
+
+kiro价格是¥2(进)10(出)/一百万Token，满血是¥6(进)30(出)/一百万Token，gpt-pro 是¥2(进)12(出)/一百万Token。
+
+他这里5元起充，有问题的时候经常直接远程给看，效率高售后体验好。
+
+### [智惠API](https://www.hvoy.ai/relaySite?name=%E6%99%BA%E6%83%A0API&source=git)
+
+这个站属于2026年新开的一个站点，提供Claude, GPT ，Gemini三家的API.
+
+Max满血渠道的 Opus4.8 价格是 ¥8.12(进)40.62(出)/一百万Token，
+
+GPT-5.5模型价格是 ¥1.25(进)7.5(出)/一百万Token, 价格还算不错, 速度也可以.
+
+现在在 [hvoy](https://www.hvoy.ai/free-tokens) 还能拿到5人民币的兑换码, 推荐去试下.
 
 ### [DawCode](https://www.hvoy.ai/relaySite?name=DawCode&source=git)
 2026年新开的一个站点, 提供Claude, GPT,Gemini三种类型的API.
