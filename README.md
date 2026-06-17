@@ -174,18 +174,6 @@ GPT5.5 价格是1(进)6(出)/一百万Token. 挺公道的价格.
 
 总体来说是个很不错的站.
 
-
-### [DeRouter](https://www.hvoy.ai/relaySite?&name=DeRouter&source=git)
-这个站点很有意思, 很像之前的p2p, 为创新鼓掌.
-
-他的商业模式是, 有人托管claude code或者GPT的订阅在DeRouter, 然后客户再在这个平台买token. 
-挺有创意的想法.
-
-如果全部是这种模式, 那么所有的token 都只有可能是claude官方的, 或者 GPT官方的. 平台几乎没有任何意愿,来给用户降智或者掺水. 
-唯一需要考虑的点, 是平台需要一定的技术保证缓存命中率. 
-
-平台支持银行卡和加密货币支付, 不支持微信/支付宝. 
-
 ### [UU API](https://www.hvoy.ai/relaySite?name=UU+API&source=git)
 UU API 主要支持Claude 和GPT. 也支持gpt-image-2 来生成图片.
 
