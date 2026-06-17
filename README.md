@@ -148,6 +148,11 @@ kiro价格是¥2(进)10(出)/一百万Token，满血是¥6(进)30(出)/一百万
 
 他这里5元起充，有问题的时候经常直接远程给看，效率高售后体验好。
 
+### [YKH.AI](https://hvoy.ai/relaySite?id=39975&name=YKH.AI&source=lb&model_tab=gpt55&display_algo=featured&position=top12)
+我比较喜欢这个站的一点是没有很多营销词，如果你想找一个界面干净、方便快速接入的 AI API 站点可以看看这个。追求性价比的话可以选 lite 分组算下来¥0.25/一百万Token，追求稳定性高的话可以选纯pro号池是 ¥0.5/一百万Token，便宜的和稳定的全都有，可以满足不同用户的需求。
+
+这个站的站长说YKH.AI 这个名字是 You Know How 的缩写，想对用户表达他的站要把“问题怎么问、上下文怎么整理、下一步怎么走”这件事做得更清楚，是个非常有心的站长哈哈，可以试试看。
+
 ### [智惠API](https://www.hvoy.ai/relaySite?name=%E6%99%BA%E6%83%A0API&source=git)
 
 这个站属于2026年新开的一个站点，提供Claude, GPT ，Gemini三家的API.
