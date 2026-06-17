@@ -141,7 +141,7 @@ btw:这个站点的域名老容易打错.
 
 建议先拿赠送额度跑一下自己的真实场景，再决定要不要充值或订阅。
 
-### [Lumin AI](https://hvoy.ai/relaySite?id=39827&name=Lumin+AI&source=lb&model_tab=opus48&display_algo=featured&position=topn)
+### [Lumin AI](https://ai.luminai.cc/register?utm_source=hvoyai&utm_medium=free)
 这个站点2026年新开的站，主打性价比路线，可能因为站长也是程序员，目前对外宣传不多，支持claude和gpt，主打了kiro这类性价比渠道，满血也是有的。
 
 kiro价格是¥2(进)10(出)/一百万Token，满血是¥6(进)30(出)/一百万Token，gpt-pro 是¥2(进)12(出)/一百万Token。
