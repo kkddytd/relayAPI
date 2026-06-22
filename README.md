@@ -116,11 +116,15 @@ btw:这个站点的域名老容易打错.
 
 
 ### [WinToken](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fwintoken.dev%2Fsign-up&name=WinToken&source=git)
-这个站比较适合 AI 应用开发、Agent 构建、产品原型验证、接口测试，以及企业内部工具集成这类场景。用户可以用一个 API Key 接入多种模型，省掉不少多平台账号配置和接口适配的麻烦。
+这是一个新站.  也常规的的支持 GPT、Claude、DeepSeek、Gemini、Qwen 这些常见的模型.
 
-它提供 GPT、Claude、DeepSeek、Gemini、Qwen 等主流大模型的统一调用。
+他有按量计费, 也有套餐订阅. 按照他自己说的, 都是官方渠道, 所以价格贵, 但是确实质量没的说.  所以这个站比较适合豪气的企业多一点.
 
-它支持按量计费、套餐订阅、余额充值，模型价格也比较透明。主要是这个站新人活动太给力了，最近经常在hvoy的[免费兑换码](https://hvoy.ai/free-tokens/invite-codes)页面投放兑换码，一个新用户总体可以得到价值113元的免费token。（0619更新，具体活动以站点为准哈）
+虽然贵, 但是这个站新人活动太给力了.
+
+最近经常在hvoy的[免费兑换码](https://hvoy.ai/free-tokens/invite-codes)页面投放兑换码，一个新用户总体可以得到价值113人民币的额度。（0619更新，具体活动以站点为准哈）
+
+即使抢不到这个兑换码, 也能够拿到大概35块钱的额度.
 
 可以趁着活动先用赠送的新人额度跑一下自己的真实场景，再决定要不要长期使用。
 
