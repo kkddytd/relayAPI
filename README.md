@@ -101,32 +101,6 @@ Gemini系列的接口也很便宜, 大概是官网价格的1折.
 文档非常清晰, 接口响应速度比较快.
 
 
-### [Poixe AI](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fpoixe.com%2Fi%2Fsgurn9&name=Poixe%20AI&source=git)
-这个站是一个从 2024 年开始做, 在中转站里, 算是干了非常久的. 
-
-整个站的风格我很喜欢, 不是审美疲劳的New API的这种风格.
-
-支持 GPT,Claude,Gemini,DeepSeek,Doubao,Qwen ,Grok 这些模型.
-
-不同级别会员价格不一样,充一点钱就能Vip1,能八折.
-
-Sonnet4.6 的价格是人民币 16.8/84 一百万 Token, Opus4.7 价格是人民币 28/140 一百万 Token.
-GPT5.4 价格是人民币 14/84 一百万 Token, GPT5.4 价格是人民币 28/168一百万 Token. (官方的东西, 真贵啊)
-
-价格是不便宜. 我试了下接口, 接口质量是相当好, 完全没掺水, 速度也快.
-网站上提供一个免费的接口,譬如 GPT4o这种.
-支持开发票.
-
-总体来说,这个适合企业客户, 质量好, 价格也在这里摆着.
-
-2026-04-17 更新: 他们新推退出了一些反代的模型(包括sonnet4.6), 这个反代的价格相对亲民了很多.
-Sonnet4.6的价格是人民币 10.5/63 一百万Token.(虽然还是不便宜)
-
-每个用户每天可以免费用一些反代出来的sonnet-4.6和gpt5.3.   
-轻度用户可以去白嫖, sonnet4-6每天可以白嫖50次. 后面有free就是可以免费用几次的. 
-
-btw:这个站点的域名老容易打错.
-
 ### [Unity2.ai](https://www.hvoy.ai/relaySite?id=39968&name=unity2&source=git)
 这个站最近在 L 站、V2EX 和几个开发者群里出现得比较多。
 
@@ -222,8 +196,33 @@ Opus4.7 推荐使用MAX的号池,价格刚降价, 变成了8.5(进)42.5(出)/一
 GPT5.5 的价格是0.8(进)4.8(出)/一百万Token, 算是非常便宜的了.
 
 
-## 中性
+### [Poixe AI](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fpoixe.com%2Fi%2Fsgurn9&name=Poixe%20AI&source=git)
+这个站是一个从 2024 年开始做, 在中转站里, 算是干了非常久的. 
 
+整个站的风格我很喜欢, 不是审美疲劳的New API的这种风格.
+
+支持 GPT,Claude,Gemini,DeepSeek,Doubao,Qwen ,Grok 这些模型.
+
+不同级别会员价格不一样,充一点钱就能Vip1,能八折.
+
+Sonnet4.6 的价格是人民币 16.8/84 一百万 Token, Opus4.7 价格是人民币 28/140 一百万 Token.
+GPT5.4 价格是人民币 14/84 一百万 Token, GPT5.4 价格是人民币 28/168一百万 Token. (官方的东西, 真贵啊)
+
+价格是不便宜. 我试了下接口, 接口质量是相当好, 完全没掺水, 速度也快.
+网站上提供一个免费的接口,譬如 GPT4o这种.
+支持开发票.
+
+总体来说,这个适合企业客户, 质量好, 价格也在这里摆着.
+
+2026-04-17 更新: 他们新推退出了一些反代的模型(包括sonnet4.6), 这个反代的价格相对亲民了很多.
+Sonnet4.6的价格是人民币 10.5/63 一百万Token.(虽然还是不便宜)
+
+每个用户每天可以免费用一些反代出来的sonnet-4.6和gpt5.3.   
+轻度用户可以去白嫖, sonnet4-6每天可以白嫖50次. 后面有free就是可以免费用几次的. 
+
+btw:这个站点的域名老容易打错.
+
+## 中性
 
 ### [Chintao AI](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fchintao.cn%2Fregister%3Faff%3DRF8V&name=Chintao%20AI&source=git)
 很新的一个站点. 2026年3月份做的. 
