@@ -53,15 +53,13 @@ btw: 希望能加入评测的中转站站长, 请来[contactUs](https://www.hvoy
 ## 推荐的
 
 ### [CUN.ai](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fcun.ai%2Fsign-up%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=CUN.ai&source=git)
-这是一个新站.  也常规的的支持 GPT、Claude、DeepSeek、Gemini、Qwen 这些常见的模型.
+CUN.ai 是今年2026年新上线的一个站点，在开发者社区中迅速火起来热度很高。支持模型种类挺多的GPT、Claude、DeepSeek、Gemini、Qwen、GLM 等都有，当下热门的Claude Fable 5、Claude Sonnet 5、Claude Opus 系列、GPT-5.5、GLM-5.2 等都有，团队效率挺高的。
 
-他有按量计费, 也有套餐订阅. 按照他自己说的, 都是官方渠道, 所以价格贵, 但是确实质量没的说.  所以这个站比较适合豪气的企业多一点.
+他有按量计费, 也有套餐订阅，站长非常豪气，经常在hvoy的[免费兑换码](https://hvoy.ai/free-tokens/invite-codes)页面投放兑换码，一个新用户总体可以得到价值140人民币的额度。
 
-虽然贵, 但是这个站新人活动太给力了.
+即使抢不到给hvoy用户的这个大额兑换额度，新用户直接去注册也可获得约60块钱的额度。
 
-最近经常在hvoy的[免费兑换码](https://hvoy.ai/free-tokens/invite-codes)页面投放兑换码，一个新用户总体可以得到价值113人民币的额度。（0619更新，具体活动以站点为准哈）
-
-即使抢不到这个兑换码, 也能够拿到大概35块钱的额度.
+（具体活动以站点为准哈）。
 
 可以趁着活动先用赠送的新人额度跑一下自己的真实场景，再决定要不要长期使用。
 
