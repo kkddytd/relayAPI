@@ -114,6 +114,14 @@ Gemini系列的接口也很便宜, 大概是官网价格的1折.
 
 如果你想找一个便宜且稳定性也不错的GPT站，可以试试这家。
 
+### [我的贾维斯](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fapi.aijws.com%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=%E6%88%91%E7%9A%84%E8%B4%BE%E7%BB%B4%E6%96%AF&source=git)
+这个站是今年6月初上线的，上线后凭借价格优势和服务发展迅速。充值是1RMB=1刀，GPT-5.5 输入价格 0.5 元/百万 tokens（Pro 号池0.1倍率），Fable-5 输入价格 10 元/百万 tokens（Max 号池 1倍率）。支持开票 + 支持对公，客服响应速度快。
+
+这个站有时候会在 [hvoy](https://hvoy.ai/free-tokens/invite-codes) 的免费兑换码投放兑换码，有需要的新用户可以关注一下领取体验一下。
+
+### [Baby](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fmax20.cn%2Fsign-up%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=Baby&source=git)
+Baby是一家专做claude ccmax渠道的Ai中转站，这家只做纯血渠道，他们公告里宣传掺假是进行赔付的。支持在线充值，充值是1RMB=1刀，纯血cc分组倍率1，性价比挺高的。新用户注册可以先联系客服领10刀的余额，测试一下纯度。
+
 ### [Unity2.ai](https://www.hvoy.ai/relaySite?id=39968&name=unity2&source=git)
 这个站最近在 L 站、V2EX 和几个开发者群里出现得比较多。
 
