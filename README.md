@@ -103,14 +103,24 @@ Gemini系列的接口也很便宜, 大概是官网价格的1折.
 
 
 ### [DuiAPI](https://www.hvoy.ai/relaySite?id=40424&name=duiapi&source=git)
-DuiAPI (对 API) 是一个主打直连官方平台的站点，目前支持 Qwen3.7-Max、GLM-5.2、DeepSeek-V4 这几个主流模型，目前新站价格 **全部模型5折优惠**，计费比较清晰，调用记录也可以追溯，对需要做成本核算、接口测试、产品原型验证或者企业内部工具集成的使用者会比较友好。
+DuiAPI (对 API) 是一个主打直连官方平台的站点，目前支持 Qwen3.7-Max、GLM-5.2、DeepSeek-V4 这几个主流模型，**目前新站Qwen3.7 5折优惠、其它模型也有在不同程度的打折**，计费比较清晰，调用记录也可以追溯，对需要做成本核算、接口测试、产品原型验证或者企业内部工具集成的使用者会比较友好。
 
 整体看，这个站更偏规范化和可管理性，不是单纯卷最低价的路线。如果你比较在意模型来源、调用记录和账单透明度，可以试试这个站，现在新用户注册送2刀，可以小额跑一下自己的真实场景试试看。
+
+### [我的贾维斯](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fapi.aijws.com%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=%E6%88%91%E7%9A%84%E8%B4%BE%E7%BB%B4%E6%96%AF&source=git)
+这个站是今年6月初上线的，上线后凭借价格优势和服务发展迅速。充值是1RMB=1刀，GPT-5.5 输入价格 0.5 元/百万 tokens（Pro 号池0.1倍率），Fable-5 输入价格 10 元/百万 tokens（Max 号池 1倍率）。支持开票 + 支持对公，客服响应速度快。
+
+这个站有时候会在 [hvoy](https://hvoy.ai/free-tokens/invite-codes) 的免费兑换码投放兑换码，有需要的新用户可以关注一下领取体验一下。
 
 ### [ApiPorter](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fapiporter.com%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=ApiPorter&source=git)
 这个站是2026年4月上线的一个站点，重点支持 GPT 系列和 Claude 系列，GPT-5.5价格是¥1.5(输入)/一百万Token，Opus4.8价格是¥10(输入)/一百万Token。
 
 这家售后服务做得不错，支持国内发票，对需要报销、团队采购或者长期稳定使用 API 的用户会更方便。直接有企业微信客服，这家站长比较重视售后和客户服务体验，希望接入简单、售后能找到人、账单和发票相对清楚的用户可以试试。
+
+### [9527code](https://www.hvoy.ai/relaySite?target=https%3A%2F%2F9527code.com%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=9527code&source=git)
+9527code是2025年12月就成立的一家站点，稳定性和真实性方面的口碑不错，号称是若发现模型降级、套壳或掺水，经核实，假一赔十。去试了一下售后流程，客服响应很快，用起来比较省心。
+
+价格的话，除了按量计费，还提供月套餐，月套餐倍率更低；他们也经常举办用户互动方面活动，还时常给新/老用户推出活动专属福利、特惠分组、赠送额度，对于追求稳定性并计划长期使用的用户会更加划算。可以关注一下这家站的公告和平台活动，赶上的时候还挺合适的。
 
 ### [灵算](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Flingsuan.top%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=%E7%81%B5%E7%AE%97&source=git)
 灵算这个站我自己试了一段时间后感觉还挺适合开发者直接拿来干活的，GPT 系列价格挺有优势的，GPT-5.5 现在是¥0.79(进)4.74(出)/一百万Token，GPT-5.4 是¥0.395(进)2.37(出)/一百万Token。实际用下来，稳定性方面我也比较满意，接口响应比较稳。
@@ -119,10 +129,6 @@ DuiAPI (对 API) 是一个主打直连官方平台的站点，目前支持 Qwen3
 
 如果你想找一个便宜且稳定性也不错的GPT站，可以试试这家。
 
-### [我的贾维斯](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fapi.aijws.com%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=%E6%88%91%E7%9A%84%E8%B4%BE%E7%BB%B4%E6%96%AF&source=git)
-这个站是今年6月初上线的，上线后凭借价格优势和服务发展迅速。充值是1RMB=1刀，GPT-5.5 输入价格 0.5 元/百万 tokens（Pro 号池0.1倍率），Fable-5 输入价格 10 元/百万 tokens（Max 号池 1倍率）。支持开票 + 支持对公，客服响应速度快。
-
-这个站有时候会在 [hvoy](https://hvoy.ai/free-tokens/invite-codes) 的免费兑换码投放兑换码，有需要的新用户可以关注一下领取体验一下。
 
 ### [Baby](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fmax20.cn%2Fsign-up%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=Baby&source=git)
 Baby是一家专做claude ccmax渠道的Ai中转站，这家只做纯血渠道，他们公告里宣传掺假是进行赔付的。支持在线充值，充值是1RMB=1刀，纯血cc分组倍率1，性价比挺高的。新用户注册可以先联系客服领10刀的余额，测试一下纯度。
