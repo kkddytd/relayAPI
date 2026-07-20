@@ -5,7 +5,7 @@ import { useI18n } from "@/i18n";
 
 export interface DetectionResultData {
   id: string;
-  score: number;
+  score: number | null;
   checks: CheckItem[];
   latency: number;
   tps: number;

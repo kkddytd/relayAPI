@@ -1,28 +1,49 @@
 import { Fragment, useState } from "react";
 import { motion } from "framer-motion";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleHelp, RefreshCw, ShieldCheck } from "lucide-react";
 import { useI18n } from "@/i18n";
 import type { CheckItem } from "@/components/DetectionChecklist";
+import type { AttachmentAnalysisReport } from "@/lib/attachments";
+import type {
+  AuthenticityEvidenceLevel,
+  AuthenticityReason,
+  AuthenticityVerdict,
+  VerifierScope,
+} from "@/lib/authenticity";
 
 export interface HistoryEntry {
+  storageId?: string;
   id: string;
+  source?: "web" | "api" | "retest";
   timestamp: string;
   model: string;
   endpoint: string;
   apiKey: string;
-  score: number;
-  status: "pass" | "fail";
+  score: number | null;
+  capabilityScore?: number;
+  authenticityScore?: number;
+  resultKind?: "text" | "image";
+  profileId?: string;
+  status: AuthenticityVerdict;
+  evidenceLevel?: AuthenticityEvidenceLevel;
+  verdictReason?: AuthenticityReason;
+  verifierScope?: VerifierScope;
   checks?: CheckItem[];
   latency?: number;
   tps?: number;
   inputTokens?: number;
   outputTokens?: number;
+  canRetest?: boolean;
+  attachments?: Array<{ id: string; original_name?: string; name?: string; url?: string; size_bytes?: number }>;
+  attachmentAnalysis?: AttachmentAnalysisReport | null;
 }
 
 interface HistoryLogProps {
   entries: HistoryEntry[];
   onSelect?: (entry: HistoryEntry) => void;
   onClear?: () => void;
+  onRetest?: (entry: HistoryEntry) => void;
+  retestingId?: string | null;
 }
 
 function getEndpointDisplay(endpoint: string): string {
@@ -31,7 +52,9 @@ function getEndpointDisplay(endpoint: string): string {
 
   try {
     const parsed = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
-    return parsed.hostname || trimmed;
+    // Keep a non-default port visible so local test services on different
+    // ports are not collapsed into the same history label.
+    return parsed.host || parsed.hostname || trimmed;
   } catch {
     return trimmed.replace(/^https?:\/\//i, "").split("/")[0] || trimmed;
   }
@@ -41,7 +64,14 @@ function getCompactTimestamp(timestamp: string): string {
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(timestamp)) {
     return timestamp.slice(5, 16);
   }
-  return timestamp;
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? timestamp : parsed.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function getDisplayTimestamp(timestamp: string): string {
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(timestamp)) return timestamp;
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? timestamp : parsed.toLocaleString();
 }
 
 function hasExpandableContent(entry: HistoryEntry): boolean {
@@ -50,13 +80,37 @@ function hasExpandableContent(entry: HistoryEntry): boolean {
     entry.latency !== undefined ||
     entry.tps !== undefined ||
     entry.inputTokens !== undefined ||
-    entry.outputTokens !== undefined,
+    entry.outputTokens !== undefined ||
+    entry.attachments?.length ||
+    entry.attachmentAnalysis ||
+    entry.canRetest,
   );
 }
 
-export function HistoryLog({ entries, onSelect, onClear }: HistoryLogProps) {
+export function HistoryLog({ entries, onSelect, onClear, onRetest, retestingId }: HistoryLogProps) {
   const { t } = useI18n();
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
+  const verdictMeta = (verdict: AuthenticityVerdict, reason?: AuthenticityReason) => {
+    if (reason === "upstream-unavailable") return { Icon: CircleHelp, label: t("upstreamUnavailable"), className: "text-warning" };
+    if (reason === "stage-fingerprint-conflict") return { Icon: AlertTriangle, label: t("authVerdictStageFingerprint"), className: "text-warning" };
+    if (reason === "custom-profile-echo") return { Icon: CircleHelp, label: t("authVerdictCustomProfileEcho"), className: "text-warning" };
+    if (verdict === "verified") return { Icon: CheckCircle2, label: t("authVerdictVerified"), className: "text-success" };
+    if (verdict === "consistent") return { Icon: ShieldCheck, label: t("authVerdictConsistent"), className: "text-primary" };
+    if (verdict === "suspicious") return { Icon: AlertTriangle, label: t("authVerdictSuspicious"), className: "text-error" };
+    return { Icon: CircleHelp, label: t("authVerdictUnverifiable"), className: "text-warning" };
+  };
+  const evidenceLabel = (level?: AuthenticityEvidenceLevel) => {
+    if (level === "provider-transport") return t("evidenceProviderTransport");
+    if (level === "cryptographic") return t("evidenceCryptographic");
+    if (level === "behavioral") return t("evidenceBehavioral");
+    if (level === "conflict") return t("evidenceConflict");
+    return t("evidenceInsufficient");
+  };
+  const sourceLabel = (source?: HistoryEntry["source"]) => source === "api"
+    ? t("historySourceApi")
+    : source === "retest"
+      ? t("historySourceRetest")
+      : t("historySourceWeb");
 
   if (entries.length === 0) {
     return (
@@ -102,22 +156,35 @@ export function HistoryLog({ entries, onSelect, onClear }: HistoryLogProps) {
           </thead>
           <tbody>
             {entries.map((entry) => {
-                const isExpanded = expandedEntryId === entry.id;
+                const rowId = entry.storageId ?? entry.id;
+                const isExpanded = expandedEntryId === rowId;
                 const canExpand = hasExpandableContent(entry);
+                const statusMeta = verdictMeta(entry.status, entry.verdictReason);
+                const StatusIcon = statusMeta.Icon;
 
                 return (
-                  <Fragment key={entry.id}>
+                  <Fragment key={rowId}>
                     <tr
                       onClick={() => {
                         if (canExpand) {
-                          setExpandedEntryId(isExpanded ? null : entry.id);
+                          setExpandedEntryId(isExpanded ? null : rowId);
                         }
                         onSelect?.(entry);
                       }}
+                      onKeyDown={(event) => {
+                        if (canExpand && (event.key === "Enter" || event.key === " ")) {
+                          event.preventDefault();
+                          setExpandedEntryId(isExpanded ? null : rowId);
+                          onSelect?.(entry);
+                        }
+                      }}
+                      tabIndex={canExpand ? 0 : undefined}
+                      aria-expanded={canExpand ? isExpanded : undefined}
+                      role={canExpand ? "button" : undefined}
                       className={`border-b border-border cursor-pointer transition-colors ${isExpanded ? "bg-muted/35" : "hover:bg-muted/50"}`}
                     >
                       <td className="py-3 text-foreground">
-                        <span className="hidden sm:inline">{entry.timestamp}</span>
+                        <span className="hidden sm:inline">{getDisplayTimestamp(entry.timestamp)}</span>
                         <span className="inline sm:hidden text-xs">{getCompactTimestamp(entry.timestamp)}</span>
                       </td>
                       <td className="py-3">
@@ -127,6 +194,7 @@ export function HistoryLog({ entries, onSelect, onClear }: HistoryLogProps) {
                         >
                           {entry.model}
                         </span>
+                        {entry.source && <span className="ml-1.5 text-[10px] text-muted-foreground">{sourceLabel(entry.source)}</span>}
                       </td>
                       <td className="py-3 text-muted-foreground font-mono text-xs">
                         <span
@@ -140,14 +208,13 @@ export function HistoryLog({ entries, onSelect, onClear }: HistoryLogProps) {
                         className="py-3 text-right text-xs sm:text-sm font-semibold tabular-nums"
                         style={{ color: "rgb(0, 17, 44)" }}
                       >
-                        {entry.score}%
+                        {entry.score === null ? "—" : `${entry.score}%`}
                       </td>
-                      <td className="py-3 text-center">
-                        {entry.status === "pass" ? (
-                          <CheckCircle2 className="w-4 h-4 text-success inline" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-error inline" />
-                        )}
+                      <td className="py-3 text-center" title={statusMeta.label}>
+                        <span className={`inline-flex items-center justify-center gap-1 text-xs font-medium ${statusMeta.className}`}>
+                          <StatusIcon className="h-4 w-4 shrink-0" />
+                          <span className="hidden lg:inline">{statusMeta.label}</span>
+                        </span>
                       </td>
                     </tr>
 
@@ -166,20 +233,53 @@ export function HistoryLog({ entries, onSelect, onClear }: HistoryLogProps) {
                                   {t("historyScore")}
                                 </div>
                               </div>
-                              <div
-                                className="shrink-0 text-right text-2xl font-medium tabular-nums"
-                                style={{ color: "rgb(0, 17, 44)" }}
-                              >
-                                {entry.score}%
+                              <div className="flex shrink-0 items-center gap-3">
+                                {entry.canRetest && onRetest && entry.storageId && (
+                                  <button
+                                    type="button"
+                                    disabled={retestingId === entry.storageId}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onRetest(entry);
+                                    }}
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-wait disabled:opacity-60"
+                                  >
+                                    <RefreshCw className={`h-3.5 w-3.5 ${retestingId === entry.storageId ? "animate-spin" : ""}`} />
+                                    {retestingId === entry.storageId ? t("historyRetesting") : t("historyRetest")}
+                                  </button>
+                                )}
+                                <div
+                                  className="text-right text-2xl font-medium tabular-nums"
+                                  style={{ color: "rgb(0, 17, 44)" }}
+                                >
+                                  {entry.score === null ? "—" : `${entry.score}%`}
+                                </div>
+                              </div>
+                            </div>
+
+                            {entry.attachments && entry.attachments.length > 0 && (
+                              <div className="mb-3 border-y border-black/5 py-2 text-xs text-muted-foreground">
+                                {entry.attachments.map((attachment) => attachment.original_name || attachment.name || attachment.id).join(" · ")}
+                              </div>
+                            )}
+
+                            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <div className="border-l-2 border-primary/60 pl-2">
+                                <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">{t("resultAuthenticityVerdict")}</div>
+                                <div className={`mt-0.5 text-sm font-semibold ${statusMeta.className}`}>{statusMeta.label}</div>
+                              </div>
+                              <div className="border-l-2 border-border pl-2">
+                                <div className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">{t("resultEvidenceLevel")}</div>
+                                <div className="mt-0.5 text-sm font-semibold text-foreground">{evidenceLabel(entry.evidenceLevel)}</div>
                               </div>
                             </div>
 
                             {entry.checks && entry.checks.length > 0 && (
                               <div className="space-y-0">
-                                {entry.checks.map((item) => {
+                                {entry.checks.map((item, index) => {
                                   return (
                                     <div
-                                      key={`${entry.id}-${item.name}`}
+                                      key={`${entry.id}-${item.name}-${index}`}
                                       className="flex items-center justify-between gap-3 border-b border-black/5 py-2 last:border-b-0"
                                     >
                                       <div className="min-w-0">

@@ -36,15 +36,23 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setLang = useCallback((nextLang: Language) => {
     setLangState(nextLang);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
+      try {
+        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
+      } catch {
+        // The selected language remains active for this session.
+      }
     }
   }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const saved = normalizeLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY));
-    if (saved) {
-      setLangState(saved);
+    try {
+      const saved = normalizeLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY));
+      if (saved) {
+        setLangState(saved);
+      }
+    } catch {
+      // Private browsing may deny storage access.
     }
   }, []);
 

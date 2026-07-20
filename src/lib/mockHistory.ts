@@ -83,6 +83,9 @@ export const MOCK_HISTORY_ENTRIES: HistoryEntry[] = mockResults.map((result, ind
   endpoint: index % 2 === 0 ? "https://relay.example.com/v1/messages" : "https://api.gateway.example/v1/chat/completions",
   apiKey: "",
   score: result.score,
-  status: result.score >= 70 ? "pass" : "fail",
+  status: "unverifiable",
+  evidenceLevel: "insufficient",
+  verdictReason: "insufficient-evidence",
+  verifierScope: "quality-only",
   result,
 }));

@@ -1,17 +1,8 @@
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { useI18n } from "@/i18n";
-
-export interface ModelOption {
-  id: string;
-  name: string;
-  provider: string;
-}
-
-const MODELS: ModelOption[] = [
-  { id: "claude-sonnet-4-6", name: "Sonnet 4.6", provider: "Anthropic" },
-  { id: "claude-opus-4-6", name: "Opus 4.6", provider: "Anthropic" },
-];
+import { MODELS } from "@/lib/models";
+import { hasDedicatedVerifier } from "@/lib/authenticity";
 
 interface ModelSelectorProps {
   selected: string | null;
@@ -23,18 +14,21 @@ export function ModelSelector({ selected, onSelect }: ModelSelectorProps) {
 
   return (
     <div className="mt-5">
-      <label className="block text-xs font-medium text-muted-foreground mb-2.5 uppercase tracking-wider font-mono">
+      <div id="model-target-label" className="block text-xs font-medium text-muted-foreground mb-2.5 uppercase tracking-wider font-mono">
         {t("modelTargetLabel")}
-      </label>
-      <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" role="group" aria-labelledby="model-target-label">
         {MODELS.map((model) => {
           const isSelected = selected === model.id;
+          const dedicated = hasDedicatedVerifier(model.id);
           return (
             <motion.button
+              type="button"
               key={model.id}
               onClick={() => onSelect(model.id)}
+              aria-pressed={isSelected}
               whileTap={{ scale: 0.98 }}
-              className={`relative min-h-[68px] p-2.5 rounded-lg border text-left transition-all duration-200 ${
+              className={`relative min-h-[82px] p-2.5 rounded-lg border text-left transition-all duration-200 ${
                 isSelected
                   ? "border-primary bg-primary/5"
                   : "border-transparent bg-muted hover:border-border"
@@ -51,6 +45,9 @@ export function ModelSelector({ selected, onSelect }: ModelSelectorProps) {
               )}
               <div className="text-sm font-semibold text-foreground leading-tight">{model.name}</div>
               <div className="text-xs text-muted-foreground mt-0.5 font-mono">{model.provider}</div>
+              <div className={`mt-1.5 text-[10px] font-medium ${dedicated ? "text-primary" : "text-muted-foreground"}`}>
+                {dedicated ? t("modelDedicatedBadge") : t("modelQualityOnlyBadge")}
+              </div>
             </motion.button>
           );
         })}

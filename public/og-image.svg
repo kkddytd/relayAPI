@@ -13,6 +13,6 @@
   <rect x="484" y="358" width="252" height="14" rx="7" fill="#00112C" fill-opacity="0.08"/>
   <rect x="484" y="394" width="216" height="14" rx="7" fill="#00112C" fill-opacity="0.08"/>
   <rect x="484" y="430" width="194" height="14" rx="7" fill="#00112C" fill-opacity="0.08"/>
-  <text x="96" y="528" font-family="Arial, sans-serif" font-size="44" font-weight="700" fill="#00112C">API中转站鉴定所</text>
-  <text x="96" y="566" font-family="Arial, sans-serif" font-size="24" fill="#334155">Check Claude / OpenAI relay endpoints for mismatch and spoofing</text>
+  <text x="96" y="528" font-family="Arial, sans-serif" font-size="44" font-weight="700" fill="#00112C">kk 模型检测</text>
+  <text x="96" y="566" font-family="Arial, sans-serif" font-size="24" fill="#334155">Check model quality, behavior, and provenance signals</text>
 </svg>

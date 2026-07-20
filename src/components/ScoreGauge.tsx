@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "@/i18n";
 
 interface ScoreGaugeProps {
-  score: number; // 0-100
+  score: number | null; // 0-100, or null when the upstream produced no usable evidence
   label?: string;
 }
 
@@ -13,14 +13,15 @@ export function ScoreGauge({ score, label }: ScoreGaugeProps) {
   const radius = 80;
   const strokeWidth = 12;
   const circumference = 2 * Math.PI * radius;
-  const progress = (animatedScore / 100) * circumference;
+  const progress = score === null ? 0 : (animatedScore / 100) * circumference;
 
   useEffect(() => {
-    const timer = setTimeout(() => setAnimatedScore(score), 100);
+    const timer = setTimeout(() => setAnimatedScore(score ?? 0), 100);
     return () => clearTimeout(timer);
   }, [score]);
 
   const getColor = () => {
+    if (score === null) return "hsl(var(--muted-foreground))";
     if (score >= 80) return "hsl(var(--primary))";
     if (score >= 50) return "hsl(var(--warning))";
     return "hsl(var(--error))";
@@ -28,10 +29,7 @@ export function ScoreGauge({ score, label }: ScoreGaugeProps) {
 
   const getLabel = () => {
     if (label) return label;
-    if (score >= 90) return t("scoreLabelAuthentic");
-    if (score >= 70) return t("scoreLabelMostlyReliable");
-    if (score >= 50) return t("scoreLabelSuspicious");
-    return t("scoreLabelFake");
+    return t("resultQualityGauge");
   };
 
   return (
@@ -69,7 +67,7 @@ export function ScoreGauge({ score, label }: ScoreGaugeProps) {
           className="fill-foreground"
           style={{ fontSize: "42px", fontWeight: 700, fontFamily: "'IBM Plex Sans'", fontVariantNumeric: "tabular-nums" }}
         >
-          {animatedScore}%
+          {score === null ? "—" : `${animatedScore}%`}
         </text>
         <text
           x="100"

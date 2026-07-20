@@ -16,7 +16,6 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
-.env.example
 
 # OS / Editor
 .DS_Store
@@ -29,9 +28,15 @@ Thumbs.db
 playwright-report/
 test-results/
 
+# Local traffic captures may contain upstream API keys and challenge tokens.
+hvoy-*.json
+
 # Cache
 .cache/
 .eslintcache
+
+# Local SQLite databases and uploaded attachments
+data/
 
 __pycache__/
 

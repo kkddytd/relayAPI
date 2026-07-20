@@ -1,0 +1,194 @@
+{
+  "version": "public-cache-custom-2026-06-18-r5",
+  "system": "\nYou are an AI agent for coding.\n\n[cachecheck mode]\nThis is an automated prompt-cache probe. Do NOT call any tools.\nReply with exactly one short sentence in plain text. No tool_use, no lists, no markdown.\n",
+  "tools": [
+    {
+      "name": "Write",
+      "description": "Writes a file to the local project filesystem.\n\nUsage:\n- Overwrites the file at file_path if it already exists; preserves permission bits on existing files (e.g. executable scripts stay executable).\n- file_path must resolve inside the project root (absolute or relative).\n- Prefer Edit for modifying existing files (smaller, targeted changes). Use Write to create new files or replace entire contents.\n- Read an existing file first when you need its current content before overwriting.\n- Do not create documentation files (*.md, README) unless the user explicitly asks.",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["file_path", "content"],
+        "type": "object",
+        "properties": {
+          "content": { "description": "Full file content to write.", "type": "string" },
+          "file_path": { "description": "Path inside the project root (absolute or relative). Paths outside the project root are rejected.", "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "WebSearch",
+      "description": "Search the web via Tavily (requires websearch.tavily_api_key in config).\n\nReturns JSON: { \"query\", \"provider\", \"results\" } where each result has title and url only (no snippets or page body).\n\nUse for up-to-date information, documentation, or facts beyond the model cutoff.\n\nUsage:\n- Provide a clear, specific query (include version/year when relevant).\n- allowed_domains / blocked_domains are sent to Tavily as include_domains / exclude_domains (not post-filtered on a small local slice).\n- Cite source URLs in your reply when you use search results.",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["query"],
+        "type": "object",
+        "properties": {
+          "allowed_domains": { "description": "Restrict Tavily search to these domains (include_domains).", "type": "array", "items": { "type": "string" } },
+          "blocked_domains": { "description": "Exclude these domains from Tavily search (exclude_domains).", "type": "array", "items": { "type": "string" } },
+          "query": { "description": "Search query string.", "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "WebFetch",
+      "description": "Fetch a URL, strip HTML to plain text, and return a short excerpt selected by prompt.\n\nUsage:\n- url must be http or https (scheme defaults to https when omitted). http:// is kept as HTTP (never upgraded to https). Follows redirects (including cross-host).\n- Requires a non-empty text-like Content-Type (text/*, json, xml, xhtml); missing type, PDF, images, and binaries are rejected.\n- Does NOT call an LLM. The prompt selects up to 4 paragraphs via keyword/CJK-aware token matching; if nothing matches, returns a truncated prefix of the page text.\n- HTML conversion is minimal (tags removed, not faithful markdown); links/tables/code structure are not preserved.\n- Some hosts that typically require login (e.g. docs.google.com, atlassian.net) are rejected up front.\n- Public github.com pages are allowed; private or login-only pages may still fail at fetch time.\n- Read-only; does not modify local files.",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["url", "prompt"],
+        "type": "object",
+        "properties": {
+          "prompt": { "description": "Keywords or question used to rank paragraphs from the fetched plain text (heuristic, not LLM summarization).", "type": "string" },
+          "url": { "description": "URL to fetch (HTTP or HTTPS).", "format": "uri", "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "Read",
+      "description": "Reads a file from the local project filesystem.\n\nUsage:\n- file_path must resolve inside the project root (absolute or relative); paths outside the root are rejected.\n- Returns raw file text with no line-number prefixes.\n- By default reads the entire file verbatim (including a trailing newline if present). Use offset (1-based start line) and limit (max number of lines) to read a window; windowed reads do not preserve the full-file trailing-newline behavior.\n- This tool reads files only, not directories. To list a directory, use Bash with ls or use Glob.\n- Read a file before editing it with Edit or overwriting with Write.",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["file_path"],
+        "type": "object",
+        "properties": {
+          "file_path": { "description": "Path inside the project root (absolute or relative). Paths outside the project root are rejected.", "type": "string" },
+          "limit": { "description": "Maximum number of lines to read. Omit to read the whole file.", "type": "integer" },
+          "offset": { "description": "1-based line number to start reading from. Omit to read from the beginning.", "type": "integer" }
+        }
+      }
+    },
+    {
+      "name": "Grep",
+      "description": "Search file contents using ripgrep (rg) under the project root.\n\nUsage:\n- ALWAYS use this tool for content search. Do not run grep or rg via Bash.\n- Supports full regex syntax (e.g. \"log.*Error\", \"function\\\\s+\\\\w+\")\n- Filter with glob (e.g. \"*.js\") or type (e.g. \"go\", \"py\")\n- output_mode: \"content\" shows matching lines; \"files_with_matches\" (default) shows paths only; \"count\" shows match counts\n- Use head_limit and offset to paginate large results\n- For cross-line patterns, set multiline: true\n- Pattern syntax follows ripgrep; escape literal braces in Go code (e.g. interface\\\\{\\\\})\n- Use the Agent tool for broad, multi-step searches",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["pattern"],
+        "type": "object",
+        "properties": {
+          "-A": { "description": "Lines of context after each match (content mode only).", "type": "integer" },
+          "-B": { "description": "Lines of context before each match (content mode only).", "type": "integer" },
+          "-C": { "description": "Lines of context before and after each match (content mode only).", "type": "integer" },
+          "-i": { "description": "Case-insensitive search.", "type": "boolean" },
+          "-n": { "description": "Include line numbers in content output (default true in content mode).", "type": "boolean" },
+          "glob": { "description": "Glob filter for files (e.g. \"*.js\", \"*.{ts,tsx}\").", "type": "string" },
+          "head_limit": { "description": "Limit output to first N lines/entries.", "type": "integer" },
+          "multiline": { "description": "Allow patterns to span lines (rg multiline mode).", "type": "boolean" },
+          "offset": { "description": "Skip first N lines/entries before applying head_limit.", "type": "integer" },
+          "output_mode": { "description": "Output mode: \"content\" (matching lines), \"files_with_matches\" (paths only, default), or \"count\".", "type": "string" },
+          "path": { "description": "File or directory under the project root to search. Defaults to project root.", "type": "string" },
+          "pattern": { "description": "Regular expression pattern to search for in file contents.", "type": "string" },
+          "type": { "description": "Ripgrep --type filter (e.g. go, py, rust).", "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "Glob",
+      "description": "- Fast file pattern matching within the project root (files only, not directories)\n- Supports glob patterns like \"**/*.go\" or \"src/**/*.ts\"\n- Returns matching file paths sorted by modification time (newest first)\n- Use when you need to find files by name patterns\n- For open-ended exploration that needs multiple search rounds, prefer the Agent tool",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["pattern"],
+        "type": "object",
+        "properties": {
+          "path": { "description": "Directory under the project root to search; defaults to project root. Omit rather than passing null.", "type": "string" },
+          "pattern": { "description": "Glob pattern to match files (e.g. \"**/*.go\", \"src/**/*.ts\").", "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "Edit",
+      "description": "Performs exact string replacements in files.\n\nUsage:\n- Read the file with Read before editing so old_string matches the file exactly (including spaces/tabs).\n- Preserves the file's permission bits after edit.\n- old_string must appear verbatim in the file.\n- The edit fails if old_string is not unique unless replace_all is true.\n- Use replace_all to replace every occurrence in the file.\n- Prefer editing existing files over creating new ones with Write.",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["file_path", "old_string", "new_string"],
+        "type": "object",
+        "properties": {
+          "file_path": { "description": "Path inside the project root (absolute or relative). Paths outside the project root are rejected.", "type": "string" },
+          "new_string": { "description": "Replacement text (must differ from old_string).", "type": "string" },
+          "old_string": { "description": "Exact text to replace (must appear in the file).", "type": "string" },
+          "replace_all": { "description": "Replace every occurrence of old_string (default false).", "type": "boolean" }
+        }
+      }
+    },
+    {
+      "name": "Bash",
+      "description": "Executes a shell command in the project environment and returns combined stdout/stderr.\n\nThe shell cwd persists between separate Bash calls. Only a standalone command `cd <path>` (no other tokens) updates that persisted cwd; `cd` inside chained commands (e.g. `cd x && go build`) does not affect later calls.\n\nCommands run under safety checks unless dangerously_skip_safety is set.\n\nIMPORTANT: Prefer dedicated tools when they fit:\n- Find files by name: Glob (not find or ls)\n- Search file contents: Grep (not grep or rg)\n- Read files: Read (not cat, head, tail)\n- Edit files: Edit (not sed or awk)\n- Write files: Write (not echo redirection or heredoc)\n\nInstructions:\n- Quote paths that contain spaces.\n- Prefer absolute paths within the project; avoid relying on cd in chained commands.\n- Optional timeout in milliseconds; default 120000 when omitted or zero (no upper bound enforced in code).\n- run_in_background is rejected if true.\n- Chain dependent commands with && in one call; use parallel Bash calls for independent commands.\n- Pipes (|) are not allowed when any side uses a whitelist command (cat, ls, grep, etc.).\n- Some commands require user confirmation (safetyAskNeeded); do not retry the same blocked command without changing approach.\n- Git: read-only git subcommands are generally allowed; mutating git operations may require confirmation or dangerously_skip_safety.",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["command"],
+        "type": "object",
+        "properties": {
+          "command": { "description": "Shell command to execute.", "type": "string" },
+          "dangerously_skip_safety": { "description": "Skip safety checks for blocked commands; only when the user explicitly accepts the risk.", "type": "boolean" },
+          "description": { "description": "Short description of what the command does (shown to the user), e.g. \"Show git status\".", "type": "string" },
+          "run_in_background": { "description": "Must be false or omitted; true returns an error.", "type": "boolean" },
+          "timeout": { "description": "Timeout in milliseconds. Default 120000 when omitted or zero.", "type": "number" }
+        }
+      }
+    },
+    {
+      "name": "AskUserQuestion",
+      "description": "Ask the user structured multiple-choice questions in the CLI.\n\nUse to gather preferences, clarify ambiguous instructions, or choose between implementation options.\n\nUsage notes:\n- Ask 1-4 questions per call; each question needs 2-4 predefined options (do not list \"Other\" — the CLI adds it automatically).\n- The CLI shows numbered options plus an \"Other\" entry for custom text.\n- Single-select: enter an option number, pick Other (then type on the next line), or type a custom answer directly on the first line.\n- Multi-select: enter space-separated option numbers; include Other to append a custom line; or type a single custom answer on the first line (non-numeric input).\n- Invalid or out-of-range numbers alone yield an empty answer.\n- Put the recommended option first and append \"(Recommended)\" to its label when applicable.",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["questions"],
+        "type": "object",
+        "properties": {
+          "questions": {
+            "description": "Questions to ask the user (1-4 items).",
+            "maxItems": 4,
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "additionalProperties": false,
+              "required": ["question", "header", "options", "multiSelect"],
+              "type": "object",
+              "properties": {
+                "header": { "description": "Short label for the question (max ~12 chars), e.g. \"Auth method\".", "type": "string" },
+                "multiSelect": { "description": "When true, user may select multiple option numbers (space-separated) and/or provide custom text via Other.", "type": "boolean" },
+                "options": {
+                  "description": "2-4 predefined choices; the CLI adds an Other option for free text.",
+                  "maxItems": 4,
+                  "minItems": 2,
+                  "type": "array",
+                  "items": {
+                    "additionalProperties": false,
+                    "required": ["label", "description"],
+                    "type": "object",
+                    "properties": {
+                      "description": { "description": "What this option means or what happens if chosen.", "type": "string" },
+                      "label": { "description": "Option text shown to the user (concise, 1-5 words).", "type": "string" }
+                    }
+                  }
+                },
+                "question": { "description": "Clear question ending with '?'. For multiSelect, phrase for multiple answers.", "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Agent",
+      "description": "Launch a sub-agent to handle complex, multi-step tasks.\n\nAvailable subagent_type values:\n- general-purpose: research, code search, and multi-step work (default tool set except Agent)\n- code-search: focused repository search (Read, Grep, Glob only)\n- doc-writer: documentation and summarization (Read, Grep, Glob, WebFetch)\n\nWhen NOT to use Agent:\n- Reading a known file path → Read\n- Finding a class or filename → Glob or Grep\n- Searching within 1-3 known files → Read\n\nUsage notes:\n- description: short 3-5 word summary; prompt: full task instructions (the sub-agent does not see this conversation).\n- Sub-agents always run synchronously; the Agent tool call blocks until they finish. Multiple Agent calls in one turn may run in parallel, but each still waits for its sub-agent result.\n- Give the sub-agent enough context: goal, what you already tried, and expected output format.",
+      "input_schema": {
+        "'$schema'": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "required": ["description", "prompt"],
+        "type": "object",
+        "properties": {
+          "description": { "description": "Short (3-5 word) summary of the subtask.", "type": "string" },
+          "prompt": { "description": "Full instructions for the sub-agent, including scope and expected output.", "type": "string" },
+          "subagent_type": { "description": "Sub-agent type: general-purpose, code-search, or doc-writer.", "type": "string" }
+        }
+      }
+    }
+  ]
+}

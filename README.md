@@ -1,377 +1,318 @@
-# AI API中转站推荐与评测
+# kk：AI 模型质量检测与本地化监测平台
 
-## 写在前面的话
+> 面向 Claude、GPT、Gemini 及兼容中转接口的开源 AI 模型质量检测、协议一致性分析、附件识别验证、历史复测和安装统计平台。
 
+[![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-React-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![SQLite](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![License](https://img.shields.io/badge/license-to%20be%20declared-lightgrey)](#许可证)
 
-2026-6-15  更新
+关键词：AI 模型质量检测、LLM 评测、Claude 检测、GPT 质量测试、Gemini 兼容性、模型中转站检测、API 质量监测、本地化部署、SQLite、附件识别、安装次数统计、开源 AI 工具。
 
-~~目前最好的策略, 大概率是自己买一个土区的GPT Plus, 每个月80块钱左右.~~
+## 项目简介
 
-~~方法是自己注册一个土区的apple id, 然后去mtcgame这里买一个礼品卡, 或者去闲鱼上买礼品卡,价格稍贵一点, 但是也能接受.~~
+kk 是一个可以自行部署、审计和扩展的 AI 模型质量监测工具。它不只看一次回答是否正确，而是把以下证据拆开记录：
 
-土区涨价了, 只有菲区还划算点. 菲区麻烦点, 简单点就用美区或者别的区. 各个区的价格可以看这里[官方套餐](https://www.hvoy.ai/official-plans/chatgpt)
+- **模型质量**：任务正确性、接口完整性、响应结构和稳定性。
+- **协议一致性**：Anthropic、OpenAI Chat、OpenAI Responses、OpenAI Images、Google Generative 等请求/响应行为。
+- **渠道证据**：最终请求主机、提供商域名、云渠道信息和可观察响应标记。
+- **附件可识别性**：图片、PDF、文本、JSON、Python、PHP、JavaScript 等附件是否真正进入模型请求，以及模型是否返回了基于附件的证据。
+- **本地历史**：检测请求、API 调用记录、附件元数据和报告保存到本机 SQLite，支持网页一键复测。
+- **安装统计**：客户端安装完成后发送一个空请求，服务端累计统计安装上报次数并记录来源 IP。
 
-有人测过, 20刀的plus大概能用出400刀的token. 如果加上各种重置, 海鲜市场上买个重置, 实际token更多, 还是很划算.
+服务端只需部署一次网页/API 和安装统计服务；客户端不部署服务，只在安装完成后调用上报 API。网页检测端和安装统计端可以使用不同端口，适合个人使用、内网部署和自建 API 服务。
 
-具体的订阅和使用方法可以看这个github. https://github.com/hvoyai/chinaGPTClaude
+## 为什么做这个项目
 
-弄完之后, 挂个机场, 用codex, 不管是写电脑, 还是聊天,或者日常很多事情(譬如给照片打个水印, 写个文章)都很方便.
-基本上够自己用了.
+目前不少同类方案存在以下问题：评测题目停留在旧模型版本、项目长期不维护、结果不可复现，或者要求把 API Key、历史记录和附件交给别人搭建好的闭源服务。对于模型中转站、兼容 API 和私有部署场景，这些方案很难审计，也很难确认数据究竟去了哪里。
 
-如果实在嫌麻烦, 找一些排名靠前的中转站, 选一些价格在 人民币 ¥1(进)6(出)/一百万Token的GPT5.5中转站, 少充点钱, 也不是不行.
+kk 的目标是把检测逻辑、数据存储和部署过程交给使用者自己掌握：可以查看代码、固定题集、替换探针、检查 SQLite、限制网络出口，并根据自己的模型版本持续回归。
 
-追求效果的, 可以上Claude, 效果好一些, 价格要贵很多. 选Claude就要认真看下下面的推荐文章. 
-一般来说,价格太便宜的,要不是掺水, 要不是不稳定,要不是收费有坑, 要注意点. 
+## 禾维模型检测算法逆向实现
 
-----
+本项目的核心模型检测算法，来自对 [hvoy.ai（禾维）](https://hvoy.ai/) 公开检测流程的逆向分析与重新实现。逆向范围不是只参考页面样式，而是覆盖了模型质量检测的完整链路：题目批次编排、模型档案识别、协议请求构造、响应证据提取、行为探针、评分聚合、稳定性修正和报告字段映射。
 
-我们先在国内想要安心的使用最先进的AI API 真是太难了. 国外官方的AI不仅价格贵, 而且经常被误封账号, 就会误事.
+当前实现将一次模型检测拆成以下阶段：
 
-选择一个好的中转站不容易, 要看下面的这些点
+```text
+检测请求
+  -> 请求规范化与模型档案解析
+  -> 按档案选择题目批次和协议探针
+  -> 调用目标模型 API 并保存原始可观察证据
+  -> 分离质量、行为、渠道和可选能力结果
+  -> 按公开基准聚合主分与诊断字段
+  -> 返回可审计的 JSON 报告并写入本地历史
+```
 
-1. 最重要的是稳定，如果它自己经常宕机或延迟极高，那不仅没省事反而耽误事. 所以要优先买那些信誉好,运行时间长, 最好有群的站
-2  第二个是速度. 一个站点如果返回速度过慢, 用起来会难受死.
-3. 模型的覆盖性: 一个好的中转站应该让你一站式调用全球顶尖模型, 最好能尽快上官方的最新模型.
-4. 中转站的收费有很多问题. 很多站看起来价格低, 实际运行起来价格很高. Token计数, 或者价格费率, 都是造成价格不同的很重要原因.  另外站点最好要有清晰的账单, 否则将来哪一天突然账单异常了,都查不到原因. 也要警惕价格异常便宜的模型, 大概率是拿着GLM这种低价国产模型代替高价的国外模型.
-5. 每个站都有跑路的危险, 优先选择公司运营的站点. 还有他们客服响应问题的速度, 站点速率波动时有没有通知这些.
-6. 注意隐形的点, 无量站比较容易做文档的就是缓存价格和缓存命中率. 正常来说, 缓存价格应该是10%左右, 但是有些站会多收点, 15%, 还有黑心站收30%.
+算法逆向的目标是复现“如何检测和如何评分”的工程流程，而不是声称拥有禾维的私有源码或提供商内部实现。仓库中的题目快照、评分参考和请求指纹都会随版本记录，便于发现上游算法变化。
 
-为了解决下面的问题, 我对使用过的中转站做一个评价.
+### 逆向来源与项目边界
 
-在所有使用之前, 切记一点, 这个行业不稳定, 不要大额充值, 用多少充多少.
+逆向分析基于 [hvoy.ai（禾维）](https://hvoy.ai/) 的公开页面、浏览器网络请求和黑盒响应行为：
 
-站点的价格更新太快了..我努力让这些价格是准确的.  
+- 本项目不是 hvoy.ai（禾维）官方项目，也不代表禾维官方立场。
+- 本项目不包含禾维的私有源码、私有密钥或服务端凭据。
+- 逆向分析只用于理解公开可观察的请求结构、题目流程和报告行为；使用者仍需遵守所在地区法律、上游服务条款和目标站点的授权范围。
+- 上游模型可能随时间更换版本、题库、路由或响应策略，任何评测结果都应结合报告版本和测试时间解读。
 
-[禾维AI](https://hvoy.ai/) 现在上面增加排行, 有后台不停检测端口, 并且更新实时价格, 可以从排行榜上挑选合适的中转站
+## 误差目标与评分算法
 
-至于具体的检测代码, 已经不开源了. 
+在**固定题集、固定模型版本、固定协议、固定随机种子和同口径公开基准**条件下，项目的工程目标是把评测误差控制在 **5% 以内**。报告会保存题目批次、引擎版本、评分依据和请求指纹，便于重复测试和定位差异。
 
-![banner](pic/banner.png)
+这里的 5% 是可复现基准下的工程指标，不是对所有模型、中转站、网络重试、题库变化和未来版本的无条件保证。模型质量分也不等于模型身份的密码学证明：中转站可以修改响应，只有完成提供商独立公钥验签，才可能证明具体模型来源。
 
-btw: 希望能加入评测的中转站站长, 请来[contactUs](https://www.hvoy.ai/contact)提交您的站信息吧.
+评分报告至少分为以下层级：
 
-## 推荐的
+- `score` / `scores.primary`：调用方优先读取的主分。
+- `scores.quality`：任务正确性、接口完整性和响应质量。
+- `scores.behavior`：模型字段、协议结构、行为探针和响应一致性。
+- `scores.official_compatibility`：有专用公开基准的模型档案兼容分。
+- `scores.public_observable`：本地可观察证据支持的分数。
+- `scores.primary_basis`：说明主分来自 `official_compatibility` 还是 `quality`。
+- `attachment_analysis`：附件可识别性独立报告，固定不参与主分。
 
-### [CUN.ai](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fcun.ai%2Fsign-up%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=CUN.ai&source=git)
-CUN.ai 是今年2026年新上线的一个站点，在开发者社区中迅速火起来热度很高。支持模型种类挺多的GPT、Claude、DeepSeek、Gemini、Qwen、GLM 等都有，当下热门的Claude Fable 5、Claude Sonnet 5、Claude Opus 系列、GPT-5.5、GLM-5.2 等都有，团队效率挺高的。
+当核心探针不可用时，服务返回 `incomplete` 或 `unavailable`，不会把网络错误、限流或无效响应伪装成模型低分。多轮检测使用轮换题批，2 轮取平均、3 轮取中位数；缓存检测和实时知识检测是可选能力观测。
 
-他有按量计费, 也有套餐订阅，站长非常豪气，经常在hvoy的[免费兑换码](https://hvoy.ai/free-tokens/invite-codes)页面投放兑换码，一个新用户总体可以得到价值 **140人民币** 的额度。
+## 核心功能
 
-即使抢不到给hvoy用户的这个大额兑换额度，新用户直接去注册也可获得约60块钱的额度。
+### 多模型、多协议检测
 
-（具体活动以站点为准哈）。
+- Claude、GPT、Gemini、GLM 及自定义模型 ID。
+- Anthropic、OpenAI Chat、OpenAI Responses、OpenAI Images、Google Generative 协议。
+- 支持自定义 base_url，适合官方 API、企业网关和兼容中转接口。
+- 专用模型档案与质量档案分开，避免把未知中转模型名误判成官方模型。
+- rounds 1-3 稳定性检测，多轮完成后按平均值或中位数聚合。
+- 可选提示缓存观测和实时知识访问检测，默认关闭以控制请求量和费用。
 
-可以趁着活动先用赠送的新人额度跑一下自己的真实场景，再决定要不要长期使用。
+### 附件上传与识别验证
 
-### [PackyCode](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fwww.packyapi.com%2Fregister%3Faff%3DgF1p&name=PackyCode&source=git)
-PackyCode 大约是24年底25年初开始活跃, 是国内比较早针对Claude Code进行优化的供应商.
+一次 multipart 请求即可同时上传附件并检测：
 
-这个站点与开源社区互动比较频繁, 站长在x上也非常活跃, 客服响应比较快. 随着发展, 这个站已经是很多中转站的上游供应商.
+- 不检查扩展名、MIME、内容、文件数量或应用级文件大小。
+- 原始文件名保留，附件单独保存在 DATA_DIR/upload/ 和内部历史目录。
+- 图片、PDF、文本、JSON、代码和其他二进制文件均可进入同一检测流程。
+- files 字段可以重复提交多个文件，attachments 按顺序匹配，不需要用户管理附件 ID。
+- 附件检查只判断模型是否收到并返回附件证据，不判断 OCR、用途或语义是否准确。
+- 附件报告固定 scored=false、affects_primary_score=false，不会改变模型主分。
+- 上传响应和检测报告返回浏览器 url，同名文件 URL 指向最新上传版本，旧文件仍保留在内部历史目录供复测使用。
 
-我现在主流用法是, 要不就用便宜的GPT5.5, 1-2块钱/一百万Token.
-要不就用贵的, 质量较好的Claude Code, 大概10块钱左右/一百万Token.
+示例：
 
-质量较好的渠道是cc, Opus4.7 10(进)5 0(出)/一百万Token, 几乎不注水
+```bash
+curl -k -X POST 'https://YOUR_SERVER_HOST/api/v1/detections' \
+  -H 'Authorization: Bearer YOUR_DETECTOR_API_KEY' \
+  -F 'request={"base_url":"https://api.example.com","upstream_api_key":"sk-target-key","model":"claude-opus-4-8","protocol":"anthropic","attachments":[{"mode":"understand","instruction":"只判断模型是否识别到附件"}]};type=application/json' \
+  -F 'files=@./example.py'
+```
 
-GPPT 5.5 现在是人民币¥2.5(进)15(出)/一百万Token
+-k 只适用于证书签发给域名、但调用时直接使用 IP 的情况；正式环境应优先使用证书匹配的域名或配置包含 IP 的证书。
 
-Gemini现在好多渠道都用不了,或者响应速度巨慢, 用下来只有PackyCode速度是最快的, 质量还可以. 价格是 Gemini 3.1 Pro是 人民币¥6(进)36(出)/一百万Token.
+### 本地历史与一键复测
 
-他们对于国内的模型支持比较全, 支持阿里百炼的api, MiniMax(官方价格的5折),GLM(九折). 
+- 检测历史、API 调用记录、审计记录和附件元数据写入本机 SQLite。
+- 完整请求中的上游 API Key 使用 AES-256-GCM 加密后保存。
+- 网页历史、API 响应和附件报告不会展示上游 Key。
+- 历史记录可以在网页中一键复测，便于比较模型版本、协议和中转站变化。
+- 丢失 HISTORY_ENCRYPTION_KEY 后，旧记录无法解密，因此生产环境应备份该密钥。
 
-新人注册送1元, 可以先试试再决定购买.  最少充值50块, 支持开发票.
+### 客户端安装完成上报
 
-### [RightCode](https://www.hvoy.ai/leaderboard)
-就是为编程准备的, 只支持Claude, Gemini和GPT的接口. 
+客户端安装完成后不需要生成设备 ID，只需发送一个空 POST：
 
-价格很便宜, Kiro逆向的接口大概是官网的0.4折. Opus 4.6 反代的价格是人民币¥1.5(进)7.5(出)/一百万Token, Sonnet 4.6的价格是人民币¥0.9(进)4.5(出)/一百万Token . 这个渠道接口质量一般
+```bash
+curl -X POST 'https://YOUR_SERVER/api/v1/installations/report'
+```
 
-值得推荐的渠道是 /claude 渠道, Opus4.7 价格是人民币¥10(进)50(出)/一百万Token. 
+服务端会记录：
 
-质量也不错, 对的起这个价格.
+- 累计安装上报次数 total。
+- 当日安装上报次数 today。
+- 去重后的来源 IP 数 unique_ips。
+- 最近上报时间和最近 14 天趋势。
+- SSE 实时统计流，网页无需刷新即可更新数量。
 
-GPT 系列还可以, GPT5.5是人民币¥2(进)12(出)/一百万Token
+这个数字表示“安装完成上报次数”，不是通过设备 ID 去重后的唯一设备数。服务端保存的是本机 SQLite 中的安装事件，后续新的安装上报会继续累加。
 
-Gemini系列的接口也很便宜, 大概是官网价格的1折.
+客户端不需要部署 Node.js、SQLite、网页、统计服务或数据库，只需调用上面的上报地址。
 
-有网友说有时拿别的模型掺水, 我自己试了一段时间挺好的
+### 局域网兼容
 
-最少可以充1元 , 获得5元的额度, 先试试效果.
+局域网通过 HTTP/IP 访问时，浏览器可能处于 isSecureContext=false，crypto.randomUUID 不一定存在。前端已提供 getRandomValues 兼容 UUID 路径，开始检测不会因为 randomUUID 缺失而在发出上游请求前异常。
 
-文档非常清晰, 接口响应速度比较快.
+## 快速开始
 
+环境要求：Node.js 20 或更高版本。
 
+```bash
+git clone https://github.com/YOUR_ORG/kk-model-monitor.git
+cd kk-model-monitor
+npm install
+cp .env.example .env.local
+npm run build
+npm run start
+```
 
-### [DuiAPI](https://www.hvoy.ai/relaySite?id=40424&name=duiapi&source=git)
-DuiAPI (对 API) 是一个主打直连官方平台的站点，目前支持 Qwen3.7-Max、GLM-5.2、DeepSeek-V4 这几个主流模型，**目前新站Qwen3.7 5折优惠、其它模型也有在不同程度的打折**，计费比较清晰，调用记录也可以追溯，对需要做成本核算、接口测试、产品原型验证或者企业内部工具集成的使用者会比较友好。
+默认地址：
 
-整体看，这个站更偏规范化和可管理性，不是单纯卷最低价的路线。如果你比较在意模型来源、调用记录和账单透明度，可以试试这个站，现在新用户注册送2刀，可以小额跑一下自己的真实场景试试看。
+- 检测网页和 API：http://127.0.0.1:6722
+- API 文档：http://127.0.0.1:6722/api-docs
+- 安装统计服务：http://127.0.0.1:6723
 
-### [我的贾维斯](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fapi.aijws.com%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=%E6%88%91%E7%9A%84%E8%B4%BE%E7%BB%B4%E6%96%AF&source=git)
-这个站是今年6月初上线的，上线后凭借价格优势和服务发展迅速。充值是1RMB=1刀，GPT-5.5 输入价格 0.5 元/百万 tokens（Pro 号池0.1倍率），Fable-5 输入价格 10 元/百万 tokens（Max 号池 1倍率）。支持开票 + 支持对公，客服响应速度快。
+开发模式：
 
-这个站有时候会在 [hvoy](https://hvoy.ai/free-tokens/invite-codes) 的免费兑换码投放兑换码，有需要的新用户可以关注一下领取体验一下。
+```bash
+npm run dev
+```
 
-### [ApiPorter](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fapiporter.com%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=ApiPorter&source=git)
-这个站是2026年4月上线的一个站点，重点支持 GPT 系列和 Claude 系列，GPT-5.5价格是¥1.5(输入)/一百万Token，Opus4.8价格是¥10(输入)/一百万Token。
+生产环境可以使用 PM2：
 
-这家售后服务做得不错，支持国内发票，对需要报销、团队采购或者长期稳定使用 API 的用户会更方便。直接有企业微信客服，这家站长比较重视售后和客户服务体验，希望接入简单、售后能找到人、账单和发票相对清楚的用户可以试试。
+```bash
+npm run build
+npm run pm2:start
+```
 
-### [9527code](https://www.hvoy.ai/relaySite?target=https%3A%2F%2F9527code.com%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=9527code&source=git)
-9527code是2025年12月就成立的一家站点，稳定性和真实性方面的口碑不错，号称是若发现模型降级、套壳或掺水，经核实，假一赔十。去试了一下售后流程，客服响应很快，用起来比较省心。
+## API 调用支持
 
-价格的话，除了按量计费，还提供月套餐，月套餐倍率更低；他们也经常举办用户互动方面活动，还时常给新/老用户推出活动专属福利、特惠分组、赠送额度，对于追求稳定性并计划长期使用的用户会更加划算。可以关注一下这家站的公告和平台活动，赶上的时候还挺合适的。
+kk 提供可供脚本、CI、桌面客户端和其他服务调用的 REST API，不要求只能通过网页操作。API 支持：
 
-### [灵算](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Flingsuan.top%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=%E7%81%B5%E7%AE%97&source=git)
-灵算这个站我自己试了一段时间后感觉还挺适合开发者直接拿来干活的，GPT 系列价格挺有优势的，GPT-5.5 现在是¥0.79(进)4.74(出)/一百万Token，GPT-5.4 是¥0.395(进)2.37(出)/一百万Token。实际用下来，稳定性方面我也比较满意，接口响应比较稳。
+- JSON 检测请求和 multipart 附件检测请求。
+- 自定义模型 ID、base_url、协议和评测档案。
+- 独立检测 API Key，与请求体中的上游模型 Key 分离。
+- 返回机器可读的 JSON 报告、主分、诊断分、检查项、警告和引擎版本。
+- 安装完成空 POST、累计数量查询和 SSE 实时安装统计。
+- OpenAPI 3.1 文档：部署后访问 /api/v1/openapi.json，也可在网页 API 文档页查看。
 
-它的gpt-image-2 生图，1K 图 1 毛一张，拿来做文章配图、产品图草稿、封面图或者一些轻量设计需求，成本很低。
+API 请求流程：
 
-如果你想找一个便宜且稳定性也不错的GPT站，可以试试这家。
+```text
+调用方 -> POST /api/v1/detections
+      -> kk 解析模型档案并执行逆向评测探针
+      -> kk 调用调用方指定的上游 API
+      -> 返回 JSON 检测报告并保存本地历史
+```
 
+响应中最常用的字段是 status、score、scores.primary_basis、checks、metrics、warnings 和 attachment_analysis。上游 Key 只放在请求中，不会出现在网页、报告或 API 响应里。
 
-### [Baby](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fmax20.cn%2Fsign-up%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=Baby&source=git)
-Baby是一家专做claude ccmax渠道的Ai中转站，这家只做纯血渠道，他们公告里宣传掺假是进行赔付的。支持在线充值，充值是1RMB=1刀，纯血cc分组倍率1，性价比挺高的。新用户注册可以先联系客服领10刀的余额，测试一下纯度。
+## API 示例
 
-### [Unity2.ai](https://www.hvoy.ai/relaySite?id=39968&name=unity2&source=git)
-这个站最近在 L 站、V2EX 和几个开发者群里出现得比较多。
+无附件检测：
 
-他们的套餐档位比较全，有 go 日卡、plus 周卡、pro 周卡、max 月卡、ultra 月卡，还有 ultra 中杯 / 大杯 / 超大杯。轻度用户可以先用日卡试试，高频用户可以看周卡和月卡，团队用量大的可以直接看 ultra 系列。
+```bash
+curl -X POST 'http://127.0.0.1:6722/api/v1/detections' \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "base_url": "https://api.example.com",
+    "upstream_api_key": "sk-target-key",
+    "model": "claude-opus-4-8",
+    "protocol": "anthropic",
+    "rounds": 1,
+    "checks": { "cache": false, "live_knowledge": false }
+  }'
+```
 
-价格不是纯最低价路线，比较重视稳定和服务。
+公网调用建议配置独立的 DETECTOR_API_KEYS，它与请求体中的 upstream_api_key 是两套不同凭据：
 
-现在有新人福利，注册送 $2，回帖或加群留 ID 还能再领 $10，合计最高差不多 $12。
+```bash
+curl -k -X POST 'https://YOUR_SERVER_HOST/api/v1/detections' \
+  -H 'Authorization: Bearer YOUR_DETECTOR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  --data '{"base_url":"https://api.example.com","upstream_api_key":"sk-target-key","model":"gpt-5.5"}'
+```
 
-他的站长也经常在[hvoy](https://hvoy.ai/free-tokens/invite-codes)的免费领兑换码页面投放兑换码，有需要的可以去领。
+常用接口：
 
-建议先拿赠送额度跑一下自己的真实场景，再决定要不要充值或订阅。
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| POST | /api/v1/detections | 运行模型检测，支持 JSON 或 multipart 附件 |
+| GET | /api/v1/health | 检测服务健康检查 |
+| GET | /api/v1/models | 查看模型档案、别名和协议 |
+| GET | /api/v1/openapi.json | 获取 OpenAPI 3.1 文档 |
+| POST | /api/v1/installations/report | 上报一次客户端安装完成 |
+| GET | /api/v1/installations/stats | 获取安装统计 |
+| GET | /api/v1/installations/stream | 订阅实时安装统计 SSE |
 
-### [Lumin AI](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fai.luminai.cc%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=Lumin%20AI&source=git)
-这个站点2026年新开的站，主打性价比路线，可能因为站长也是程序员，目前对外宣传不多，支持claude和gpt，主打了kiro这类性价比渠道，满血也是有的。
+旧的 POST /api/v1/attachments 两步上传接口仅为历史调用兼容保留，新的附件测试建议直接使用上面的 multipart /api/v1/detections。
 
-kiro价格是¥2(进)10(出)/一百万Token，满血是¥6(进)30(出)/一百万Token，gpt-pro 是¥2(进)12(出)/一百万Token。
+## 数据目录
 
-他这里5元起充，有问题的时候经常直接远程给看，效率高售后体验好。
+```text
+DATA_DIR/
+├── kangkang.sqlite              # 检测历史、API 审计和附件元数据
+├── .history-key                 # 自动生成的历史加密密钥
+├── upload/                      # 浏览器可访问的同名文件最新版本
+└── .attachment-history/         # 每次上传的原文件和历史版本
 
-### [YKH.AI](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fapi.ykh.ai%2Fsign-up%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=YKH.AI&source=git)
-我比较喜欢这个站的一点是没有很多营销词，如果你想找一个界面干净、方便快速接入的 AI API 站点可以看看这个。追求性价比的话可以选 lite 分组算下来¥0.25/一百万Token，追求稳定性高的话可以选纯pro号池是 ¥0.5/一百万Token，便宜的和稳定的全都有，可以满足不同用户的需求。
+INSTALL_TRACKER_DATA_DIR/
+└── installations.sqlite         # 安装上报事件和来源 IP
+```
 
-这个站的站长说YKH.AI 这个名字是 You Know How 的缩写，想对用户表达他的站要把“问题怎么问、上下文怎么整理、下一步怎么走”这件事做得更清楚，是个非常有心的站长哈哈，可以试试看。
+应用本身不限制附件类型和大小，但操作系统、磁盘容量、Nginx/Cloudflare 等反向代理仍可能有自己的请求限制。附件目录应视为不可信文件存储，不能让 Web 服务器执行其中的脚本文件。
 
-### [智惠API](https://www.hvoy.ai/relaySite?name=%E6%99%BA%E6%83%A0API&source=git)
+## 本地化部署与安全边界
 
-这个站属于2026年新开的一个站点，提供Claude, GPT ，Gemini三家的API.
+本项目采用本地优先设计：检测历史、附件、审计记录和加密后的上游 Key 保存在你自己的服务器上，不要求把这些数据上传到第三方 SaaS 服务。只有你主动配置的检测请求会发送到对应的上游模型 API。
 
-Max满血渠道的 Opus4.8 价格是 ¥8.12(进)40.62(出)/一百万Token，
+在正确配置的自建环境中，项目数据可以完全留在你的服务器；这里的“完全本地化”不等于对任意操作系统、网络和部署环境作“绝对安全”的承诺。相比把 API Key 和历史记录交给未知的第三方搭建实例，本地部署更容易审计和控制。实际安全性还取决于：
 
-GPT-5.5模型价格是 ¥1.25(进)7.5(出)/一百万Token, 价格还算不错, 速度也可以.
+- 服务器操作系统、SSH 密钥、文件权限和备份策略。
+- 反向代理是否启用 HTTPS、是否正确限制管理端口。
+- DETECTOR_API_KEYS、HISTORY_ENCRYPTION_KEY 和 WEB_SESSION_SECRET 是否使用随机长期值。
+- 是否限制上游网络出口、关闭不需要的公网端口。
+- 是否把 DATA_DIR、附件目录和日志目录纳入访问控制。
 
-现在在 [hvoy](https://www.hvoy.ai/free-tokens) 还能拿到5人民币的兑换码, 推荐去试下.
+建议公网部署时：
 
-### [NekoCode](https://www.hvoy.ai/relaySite?name=NekoCode&source=git)
-2026年新开的一个站点, 提供Claude, GPT 两种类型的API.
-界面风格也是淡淡的, 甚得我心.
+1. 使用 Nginx/Caddy 终止 HTTPS，并只把 Web/API 端口代理到本机 6722。
+2. 安装统计服务只监听本机 6723，通过同源路径或受控反代访问。
+3. 配置独立检测 Bearer Key，不要把上游 Key 写入前端代码或公开仓库。
+4. 定期备份 SQLite 和加密密钥，并限制备份文件权限。
 
-接口异常稳定, claude 就有 max号池 和kiro 两个选择. 都挺稳定的, max 质量很好,kiro 比较实惠.
+## 评测结果的正确理解
 
-价格比较合理, max渠道的 Opus4.7 价格是 ¥9(进)45(出)/一百万Token, 质量对得起这个价格. 
+score 是主质量分，优先读取 scores.primary 和 scores.primary_basis。以下字段不能被误读为模型身份的绝对证明：
 
-之前有包月套餐, 现在都没了.主要是按量.
-新用户有一个小福利, 15 块钱可以卖 30 块钱的量.
-此外, 最低充 20 人民币.
+- 满分不代表具体上游模型已完成密码学验真。
+- 官方域名或云渠道只代表传输路径证据，不代表模型一定没有被替换。
+- 附件 recognized 只代表模型返回了附件相关证据，不代表内容理解准确。
+- 缓存和实时知识检查是独立能力观测，不默认降低主质量分。
+- 上游不可用时返回 unavailable，不会把网络错误伪装成模型低分。
 
-### [XycAi(星道智能)](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fxyc.ai%2Fsign-up%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=XycAi%28%E6%98%9F%E9%81%93%E6%99%BA%E8%83%BD%29&source=git)
-这个站号称是有正规大模型备案号和一些正规出海资质的合规对外企业，说是可以解决企业软件安全审查中上家数据合规性问题以及税务问题（有这方面需求的小伙伴请自行和站点核实哈）。
+## 测试与质量保证
 
-价格也不贵，gpt5.5是2.2折，opus4.8是3.9折，他们支持的模型很多还有很多国产模型gpt、opus、豆包、DeepSeek、千问、可灵等都支持，还是做的很不错的。
+```bash
+npm run typecheck
+npm test
+npm run lint
+npm run build
+npm run test:e2e
+```
 
-### [LinkAi](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Flinkai.shop%2Fregister%3Futm_source%3Dhvoyai%26utm_medium%3Dfree&name=LinkAi&source=git)
-这个站点的接口文档清晰，提供 Claude、GPT 等主流模型的 API 中转服务，调用方式简单直接，上手快，用着很顺手。线路质量、响应速度和成功率都表现不错。
+测试覆盖检测协议、模型档案、评分、缓存观测、实时知识、附件上传、历史复测、安装统计、SSE、局域网不安全上下文和移动端页面。
 
-现在注册即送 5 美元体验金（无需充值），还有一些充值活动，比如首次充值满 100 元额外赠送 30 元、充值满 500 元赠送 150 元（限时活动）。
+## 适合谁使用
 
-建议大家先用小额真实业务跑一段时间，感受一下高峰期延迟、失败率和账单情况。如果稳定再逐步加量，放心长期使用。
+- 需要检测 Claude、GPT、Gemini 或兼容中转接口质量的开发者。
+- 需要把模型检测数据留在内网或个人服务器的团队。
+- 需要验证图片、PDF、代码和 JSON 附件是否真正被模型看到的测试人员。
+- 需要追踪客户端安装上报数量和来源 IP 的项目维护者。
+- 需要审计评测流程，而不是只相信第三方页面显示的一个分数的用户。
 
+## 贡献与问题反馈
 
+欢迎提交 Issue、测试样例、协议差异、模型版本变化和可复现的错误报告。提交日志或请求示例前，请删除 API Key、Cookie、个人 IP、附件内容和其他敏感信息。
 
-### [UU API](https://www.hvoy.ai/relaySite?name=UU+API&source=git)
-UU API 主要支持Claude 和GPT. 也支持gpt-image-2 来生成图片.
+推荐的 Issue 信息：
 
-Claude 建议使用 MAX分组, 实测都是max号池, 质量没啥问题. opus-4.7的价格是 11(进)55(出)/一百万Token.
+- Node.js、操作系统和浏览器版本。
+- 模型 ID、协议、是否使用中转站和检测引擎版本。
+- 脱敏后的请求/响应结构。
+- status、scores.primary_basis、warnings 和相关检查项。
+- 是否可以在本地最小配置中复现。
 
-GPT5.5 价格是 1.5(进)9(出)/一百万Token. 还可以吧.
+## 许可证
 
-gpt生图是按次的, 4分钱一次.
+当前仓库尚未预设具体许可证。公开发布前请添加 LICENSE 文件并明确选择 MIT、Apache-2.0 或其他适合你的开源许可证；在添加许可证之前，默认不授予他人复制、修改和再发布的许可。
 
-平台支持支付宝和微信支付. 新注册用户送一块钱进行调试
+## 免责声明
 
-### [AnPin AI](https://www.hvoy.ai/relaySite?name=AnPin+AI&source=git)
-AnPin站长在x上非常活跃, 手上开展的业务也非常多.  这个站的特点是比较便宜. 
-
-Opus4.7 推荐使用MAX的号池,价格刚降价, 变成了8.5(进)42.5(出)/一百万Token. 在max号池这一块, 算是便宜的. 质量也没问题, 但是响应速度一般
-
-GPT5.5 的价格是0.8(进)4.8(出)/一百万Token, 算是非常便宜的了.
-
-
-### [Poixe AI](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fpoixe.com%2Fi%2Fsgurn9&name=Poixe%20AI&source=git)
-这个站是一个从 2024 年开始做, 在中转站里, 算是干了非常久的. 
-
-整个站的风格我很喜欢, 不是审美疲劳的New API的这种风格.
-
-支持 GPT,Claude,Gemini,DeepSeek,Doubao,Qwen ,Grok 这些模型.
-
-不同级别会员价格不一样,充一点钱就能Vip1,能八折.
-
-Sonnet4.6 的价格是人民币 16.8/84 一百万 Token, Opus4.7 价格是人民币 28/140 一百万 Token.
-GPT5.4 价格是人民币 14/84 一百万 Token, GPT5.4 价格是人民币 28/168一百万 Token. (官方的东西, 真贵啊)
-
-价格是不便宜. 我试了下接口, 接口质量是相当好, 完全没掺水, 速度也快.
-网站上提供一个免费的接口,譬如 GPT4o这种.
-支持开发票.
-
-总体来说,这个适合企业客户, 质量好, 价格也在这里摆着.
-
-2026-04-17 更新: 他们新推退出了一些反代的模型(包括sonnet4.6), 这个反代的价格相对亲民了很多.
-Sonnet4.6的价格是人民币 10.5/63 一百万Token.(虽然还是不便宜)
-
-每个用户每天可以免费用一些反代出来的sonnet-4.6和gpt5.3.   
-轻度用户可以去白嫖, sonnet4-6每天可以白嫖50次. 后面有free就是可以免费用几次的. 
-
-btw:这个站点的域名老容易打错.
-
-## 中性
-
-### [Chintao AI](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fchintao.cn%2Fregister%3Faff%3DRF8V&name=Chintao%20AI&source=git)
-很新的一个站点. 2026年3月份做的. 
-
-但是我自己试了下, 接口质量很好, ~即使是逆向kiro或者aws的接口, 质量都很稳定很不错.~(现在也挂了)
-
-价格上也算是便宜的, 我觉得合适的Sonnet4.6 是 人民币¥3.6(进)18(出)/一百万Token, Opus4.6 是人民币¥4.8(进)24(出)/一百万Token.
-但是在这个质量上来说, 这个价格算很好. 接口基本不挂,基本没掺水.
-
-
-### [Claude API](https://www.hvoy.ai/relaySite?name=Claude+API&source=git)
-
-Claude API 也是一个26年4月份新成立的站. 我自己试了试质量还可以. 只支持Claude 和GPT, 不支持Gemini. (谷歌慢慢在AI竞争中落伍了啊)
-
-Opus4.7 推荐的渠道是叫 "Claude官方"的渠道, 价格是人民币¥10(进)50(出)/一百万Token. 现在质量好的, 大概都是10块钱左右的价格.
-
-GPT5.5 推荐codex渠道, 价格是人民币¥1.8(进)10.8(出)/一百万Token.只能说还行吧. 这个价格.
-
-网站支持AI生成图的功能. 
-
-新注册用户送一块钱,可以试试接口水平
-
-网站支持支付宝和微信支付功能.
-
-### [IKunCode](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Fapi.ikuncode.cc%2F&name=IKunCode&source=git)
-这也是一个专注于编程的API站点, 所以只支持Claude, GPT和Gemini.
-名字很时尚.
-
-只有按量收费一个收费方式
-QQ群里大家比较活跃.
-
-Claude Code 质量比较好的分组价格是 ClaudeCode-稳定, 价格是11.5(进)57.5(出)/一百万Token. 很稳定,速度也不错.
-GPT5.5 价格是1(进)6(出)/一百万Token. 挺公道的价格.
-
-总体来说是个很不错的站.
-
-### [ModCon](https://www.hvoy.ai/relaySite?name=ModCon&source=git)
-
-ModCon是25年11月成立的一个站, GPT系列做的还不错.
-GPT5.5的价格是0.9, 挺稳定的.
-
-
-### [aigocode.com](https://www.hvoy.ai/relaySite?target=https%3A%2F%2Faigocode.com%2Finvite%2FZJS7W25Q&name=AlGoCode&source=git)
-aigocode是一个口碑还不错的APIKEY网站, 目前没有发现用低价模型代替高级模型的情况. 我自己用的这段时间稳定性还行.
-模型方面只有Claude, GPT和 Gemini. 支持 Claude 4.6 & Codex 5.3 & Gemini 3.
-
-Opus4.6 最便宜的反代价格是人民币¥2(进)10(出)/一百万Token, 他们自己推荐的opus4.6方案是¥9(进)45(出)/一百万Token
-GPT5.3的价格是人民币¥1.5(进)9(出)/一百万Token.
-按量的价格比较合适.
-
-网站支持月卡套餐.
-目前最低的套餐是4周399人民币, 也就是100人民币每周, 对应的额度是110元每周.
-算是不便宜的. 稳定性偶尔会有波动.
-
-
-### OpenRouter.ai
-在所有的网站里, 是OpenRouter最先开始这个模式的
-
-一个API可以使用多个模型,  最新的GPT API, Anthropic API, Gemini , 国内的DeepSeek, Kimi, MiniMax都可以第一时间使用.
-
-不过现在国内的信用卡也已经用不了Claude, GPT这些接口了, 这个网站不再太适合我们
-
-稳定性非常不错,  而且都是原厂模型, 直接使用就行. 
-
-缺点是价格比较贵, 很多情况下比原厂价格还要贵5%. 
-
-
-
-### 哈基米
-也是一个玩酒馆朋友比较常用的网站.
-
-网站是按照1:200进行充值.
-
-支持的模型很多, Claude, Deepseek, Gemini, Minimax, Kimi, GPT 这些都支持.
-
-可以按量, 也可以按次计费.
-
-特价的按次的Opus4.6 有0.06人民币/次的(掺水严重),  0.15元/次的(掺水), 其他价格的可以大家自己试试.
-
-按量的Sonnet4.6 价格是人民币¥1.5(进)7.5(出)/一百万Token, 是掺水的.
-按量的Opus4.6 价格是¥2.5(进)12.5(出)/一百万Token, 也是是掺水的.
-
-新用户注册送0.5人民币, 可以自己去感受下
-
-### Ekan8
-支持Gemini和Claude
-
-Claude 只支持Opus4.6, 可以按次也可以按量.
-按量的Opus4.6 thinking 还有100万上下文的Opus4.6 价格是人民币¥3.5(进)17.5(出)/一百万Token, 这个价格也还行.
-
-~按次的Opus4.6 价格是每次0.15人民币, 100万上下文. 这个接口确实很少掺水, 值得这个价格. ~
-
-2026-4-13更新: 最近接口质量不太行了
-
-这个站的接口质量是我测过的"酒馆"站里, 质量和价格比最高的.
-
-Gemini3.1 Pro都是按次的, 每次4分钱.
-
-
-## 不推荐的
-
-### 闲鱼上的中转站
-试过好几个, 闲鱼上/小红书不知名中转站, 基本要不是模型掺水的特别厉害, 要不就是速度不达标,太看运气了.
-
-而且很多新站真的很不靠谱.  跑路的我都见过几个.
-一定要小心.
-
-
-
-###  AI派
-这也是一个比较新的网站
-
-只支持Claude, Gemini, GPT. 刚开始支持NanoBanan2, 4k文生图
-
-Claude方面, 好玩的是只支持Sonnet4.6和Opus4.6, 其实也是, 与其用4.0那些接口, 还不如用国产的呢.
-
-价格方面, 看起来很便宜
-
-**不过需要注意的是, 这个站的缓存价格比较贵,是0.52倍. (一般网站都是0.1倍). 写代码大量使用缓存, 所以这个站其实很贵**
-
-少充点, 以防跑路.
-
-2026-4-11 更新
-这个站最近claude相关接口返回特别慢.使用起来很难受
-
-2026-4-30 更新
-最近这个站接口质量不太好, 以及价格上不透明, 不再推荐了.  
-
-有几个用户给我反馈, 说AI派现在接口慢,扣费还贵. 所以大家远离这里.
-
-
-### 大肘子
-大肘子是一个RP友好的中转站
-
-这个站在xhs上讨论很多, 但是接口质量真的很差. 这个站反代的非常明显, 特点是按调用次数收费, 而不是常见的按量收费.
+本项目仅用于授权范围内的模型质量评测、接口调试和本地化监测。使用者应自行确认上游 API、目标站点和逆向分析行为符合适用法律、服务条款和组织政策。本项目不对第三方模型服务的可用性、输出正确性、模型身份或部署环境安全承担保证责任。
