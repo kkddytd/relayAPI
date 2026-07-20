@@ -151,7 +151,18 @@ git clone https://github.com/kkddytd/relayAPI.git && cd relayAPI && bash scripts
 
 也可以在已克隆的仓库根目录执行 `bash scripts/deploy-local.sh`，或使用 `npm run deploy:local`。
 
-脚本会安装依赖、生成前端构建产物并启动检测网页/API 与本机安装统计服务；按 `Ctrl+C` 停止。脚本不会覆盖已有 `.env`，首次运行会从 `.env.example` 创建基础配置。
+脚本会安装依赖、生成前端构建产物，并将检测网页/API 与本机安装统计服务作为独立后台进程启动；健康检查通过后命令会自动结束，退出 SSH 不会停止服务。脚本不会覆盖已有 `.env`，首次运行会从 `.env.example` 创建基础配置。
+
+```bash
+# 查看日志
+tail -f data/relayapi.log
+
+# 停止后台服务
+kill "$(cat data/relayapi.pid)"
+
+# 需要前台调试时使用
+FOREGROUND=true bash scripts/deploy-local.sh
+```
 
 手动执行等价命令：
 

@@ -41,6 +41,7 @@ if [[ -z "${configured_key//[[:space:]]/}" ]]; then
   printf '%s\n' "Generated detector API key and stored it in $ROOT_DIR/.env:"
   printf '%s\n' "$generated_key"
 fi
+export ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE="${ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE:-true}"
 docker compose up -d --build
 
 detector_api_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
