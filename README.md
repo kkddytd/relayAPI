@@ -187,7 +187,7 @@ Docker-only 主机没有 Node.js 时，直接查看项目根目录 `.env` 中的
 sed -n 's/^DETECTOR_API_KEYS=//p' .env
 ```
 
-两个一键部署脚本第一次运行时会自动生成 Key，并在终端提示保存位置；已有 Key 不会被覆盖。轮换 Key 后需要重启本地进程或执行 `docker compose restart`。调用检测 API 时使用：
+两个一键部署脚本第一次运行时会自动生成 Key，并在终端打印完整 Key 和保存位置；已有 Key 不会被覆盖。轮换 Key 后需要重启本地进程或执行 `docker compose restart`。调用检测 API 时使用：
 
 ```bash
 curl -X POST 'http://127.0.0.1:6722/api/v1/detections' \
@@ -205,6 +205,14 @@ curl -X POST 'http://127.0.0.1:6722/api/v1/detections' \
 | 局域网或服务器访问 | `http://服务器IP:6722` | `http://服务器IP:6722/api-docs` | 仍通过 6722 的安装统计路径访问 |
 
 本地 Node.js 一键部署默认监听 `0.0.0.0`，因此服务器或局域网可直接打开网页；Docker Compose 也默认监听容器内的 `0.0.0.0`。更换对外端口时，Docker 使用 `RELAYAPI_PORT=8080 bash scripts/deploy.sh`，本地 Node.js 使用 `PORT=8080 bash scripts/deploy-local.sh`。安装统计服务仍使用内部端口 `6723`。
+
+如果使用仓库内的 Nginx 配置，默认路由是：`https://你的域名/` 为安装统计面板，`https://你的域名:8443/` 为模型检测网页/API。打开网页不会自动计为一次安装；客户端安装完成后必须发送一次空 POST：
+
+```bash
+curl -X POST 'https://你的域名/api/v1/installations/report'
+```
+
+成功返回 `204` 后，统计面板会通过 SSE 实时增加累计数量。`GET /api/v1/installations/stats` 可用于核对当前总数。
 
 ## API 调用
 

@@ -43,6 +43,9 @@ if [[ -z "${configured_key//[[:space:]]/}" ]]; then
 fi
 docker compose up -d --build
 
+detector_api_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
 printf '\n%s\n' "relayAPI is running."
 printf '%s\n' "Web/API: http://127.0.0.1:${RELAYAPI_PORT:-6722}"
+printf '%s\n' "Detector API key: ${detector_api_key:-not-configured}"
+printf '%s\n' "Key file:  $ROOT_DIR/.env (DETECTOR_API_KEYS)"
 printf '%s\n' "Logs:     docker compose logs -f relayapi"

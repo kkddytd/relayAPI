@@ -24,8 +24,11 @@ node scripts/generate-api-key.mjs --ensure
 npm ci --no-audit --no-fund
 npm run build
 
+detector_api_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
 printf '\n%s\n' "relayAPI is starting."
 printf '%s\n' "Web/API: http://127.0.0.1:${PORT:-6722}"
 printf '%s\n' "API docs: http://127.0.0.1:${PORT:-6722}/api-docs"
+printf '%s\n' "Detector API key: ${detector_api_key:-not-configured}"
+printf '%s\n' "Key file:  $ROOT_DIR/.env (DETECTOR_API_KEYS)"
 printf '%s\n' "Press Ctrl+C to stop."
 exec npm run start
