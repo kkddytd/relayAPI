@@ -150,6 +150,25 @@ describe("local SQLite storage", () => {
     second.close();
   });
 
+  it("uses the built-in history key when no deployment secret is configured", () => {
+    const dataDirectory = temporaryDirectory();
+    const databasePath = path.join(dataDirectory, "history.sqlite");
+    const first = createAppStorage({ dataDirectory, databasePath });
+    const runId = first.createRun({
+      source: "web",
+      request: { base_url: "https://example.com", upstream_api_key: "secret", model: "gpt-test" },
+    });
+    first.close();
+
+    expect(fs.existsSync(path.join(dataDirectory, ".history-key"))).toBe(false);
+    const second = createAppStorage({ dataDirectory, databasePath });
+    expect(second.getRunForRetry(runId)?.request).toMatchObject({
+      upstream_api_key: "secret",
+      model: "gpt-test",
+    });
+    second.close();
+  });
+
   it("isolates history and attachment lifecycle by owner scope", () => {
     const dataDirectory = temporaryDirectory();
     const storage = createAppStorage({ dataDirectory, encryptionKey: "owner-scope-test-key" });

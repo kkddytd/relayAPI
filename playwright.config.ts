@@ -44,7 +44,6 @@ export default defineConfig({
       HOST: "127.0.0.1",
       PORT: String(port),
       DATA_DIR: dataDirectory,
-      HISTORY_ENCRYPTION_KEY: "kangkang-e2e-history-key",
       INSTALL_TRACKER_URL: `http://127.0.0.1:${trackerPort}`,
       INSTALL_TRACKER_HOST: "127.0.0.1",
       INSTALL_TRACKER_PORT: String(trackerPort),

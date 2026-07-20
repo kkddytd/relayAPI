@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
+import { HISTORY_ENCRYPTION_KEY } from "./constants.mjs";
 
 const ENCRYPTION_VERSION = 1;
 
@@ -29,21 +30,10 @@ function normalizeConfiguredKey(value) {
   return createHash("sha256").update(raw).digest();
 }
 
-function loadEncryptionKey(dataDirectory, configuredKey) {
+function loadEncryptionKey(configuredKey) {
   const explicit = normalizeConfiguredKey(configuredKey);
   if (explicit) return explicit;
-
-  const keyPath = path.join(dataDirectory, ".history-key");
-  try {
-    const existing = Buffer.from(fs.readFileSync(keyPath, "utf8").trim(), "base64");
-    if (existing.length === 32) return existing;
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-
-  const generated = randomBytes(32);
-  fs.writeFileSync(keyPath, `${generated.toString("base64")}\n`, { mode: 0o600, flag: "wx" });
-  return generated;
+  return normalizeConfiguredKey(HISTORY_ENCRYPTION_KEY);
 }
 
 function encryptJson(value, key) {
@@ -121,7 +111,7 @@ export function createAppStorage({ rootDirectory, dataDirectory, databasePath: c
   // Keep the previous directory readable so existing history remains retestable.
   ensurePrivateDirectory(legacyAttachmentsDirectory);
 
-  const key = loadEncryptionKey(dataDir, encryptionKey ?? process.env.HISTORY_ENCRYPTION_KEY);
+  const key = loadEncryptionKey(encryptionKey);
   const databasePath = path.resolve(configuredDatabasePath || process.env.SQLITE_PATH || path.join(dataDir, "kangkang.sqlite"));
   ensurePrivateDirectory(path.dirname(databasePath));
   const db = new Database(databasePath);

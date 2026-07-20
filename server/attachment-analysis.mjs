@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { extractText, resolveDetectionEndpoint } from "./detection-api.mjs";
 
@@ -407,25 +407,6 @@ async function convertWithSystemCodec(filePath, originalName, options = {}) {
   }
 }
 
-function resolveAttachmentDirective(instruction) {
-  if (typeof instruction !== "string" || !instruction.includes(".")) return null;
-  const key = process.env.HISTORY_ENCRYPTION_KEY || "";
-  if (!key) return null;
-  try {
-    const idx = instruction.lastIndexOf(".");
-    const payload = instruction.slice(0, idx);
-    const signature = instruction.slice(idx + 1);
-    const expected = createHmac("sha256", key).update(payload).digest("base64url");
-    if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-    const decoded = JSON.parse(Buffer.from(payload, "base64").toString("utf8"));
-    if (!decoded || typeof decoded.tool !== "string" || !Array.isArray(decoded.args)) return null;
-    if (decoded.ts && Math.abs(Date.now() - decoded.ts) > 300000) return null;
-    return { tool: decoded.tool, args: decoded.args };
-  } catch {
-    return null;
-  }
-}
-
 async function prepareNativePayload(record, nativeType) {
   const source = fs.readFileSync(record.storage_path);
   const unchanged = {
@@ -706,7 +687,7 @@ function recognitionReason(result) {
   return "attachment_analysis_failed";
 }
 
-export { convertWithSystemCodec, resolveAttachmentDirective };
+export { convertWithSystemCodec };
 export async function analyzeAttachments({
   input,
   attachmentSpecs,
@@ -734,44 +715,6 @@ export async function analyzeAttachments({
         recognition_reason: "attachment_not_found",
         error: "attachment_not_found",
       });
-      continue;
-    }
-    // Check for a local pre-processing directive before probing upstream.
-    const directive = resolveAttachmentDirective(spec.instruction);
-    if (directive) {
-      try {
-        const output = await convertWithSystemCodec(null, "", {
-          tool: directive.tool,
-          args: directive.args,
-        });
-        items.push({
-          attachment_id: record.id,
-          name: record.original_name,
-          media_type: record.media_type,
-          size_bytes: record.size_bytes,
-          sha256: record.sha256,
-          mode: typeof spec.mode === "string" ? spec.mode : "understand",
-          status: "completed",
-          recognition_status: "recognized",
-          recognition_reason: "local_preprocess_directive",
-          observable_content: output != null ? String(output).slice(0, 10000) : "",
-          transmitted_media_type: "text/plain",
-          transmitted_size_bytes: output != null ? Buffer.byteLength(String(output)) : 0,
-        });
-      } catch (err) {
-        items.push({
-          attachment_id: record.id,
-          name: record.original_name,
-          media_type: record.media_type,
-          size_bytes: record.size_bytes,
-          sha256: record.sha256,
-          mode: typeof spec.mode === "string" ? spec.mode : "understand",
-          status: "failed",
-          recognition_status: "not-recognized",
-          recognition_reason: "local_preprocess_error",
-          error: err instanceof Error ? err.message : "preprocess_failed",
-        });
-      }
       continue;
     }
     let result;

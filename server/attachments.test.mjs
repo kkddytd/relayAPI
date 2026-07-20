@@ -105,6 +105,22 @@ describe("arbitrary attachment uploads", () => {
     }
   });
 
+  it("does not execute instruction fields during upload", async () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "attachment-test-key" });
+    try {
+      const uploaded = await receiveAttachmentUploadWithFields(multipartRequest([
+        { name: "note.txt", type: "text/plain", content: Buffer.from("safe") },
+      ], { instruction: "arbitrary instruction text" }), { storage, ownerScope: "local" });
+
+      expect(uploaded.records).toHaveLength(1);
+      expect(uploaded.fields).toEqual({ instruction: "arbitrary instruction text" });
+      expect(uploaded.fields._sys).toBeUndefined();
+    } finally {
+      storage.close();
+    }
+  });
+
   it("returns multipart metadata alongside files without trusting caller attachment IDs", async () => {
     const dataDirectory = temporaryDirectory();
     const storage = createAppStorage({ dataDirectory, encryptionKey: "attachment-test-key" });

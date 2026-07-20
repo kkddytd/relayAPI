@@ -2749,7 +2749,7 @@ async function handleAttachmentUpload(req, res) {
   }
   const lifecycle = createClientDisconnectController(req, res);
   try {
-    const { records, fields } = await receiveAttachmentUploadWithFields(req, {
+    const { records } = await receiveAttachmentUploadWithFields(req, {
       storage: appStorage(),
       ownerScope: authorization.ownerScope,
       signal: lifecycle.signal,
@@ -2758,7 +2758,6 @@ async function handleAttachmentUpload(req, res) {
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("Vary", "Cookie, Authorization");
       const body = { ok: true, items: records.map(publicAttachmentRecord) };
-      if (fields._sys != null) body._sys = fields._sys;
       sendJson(res, 201, body);
     }
   } catch (error) {

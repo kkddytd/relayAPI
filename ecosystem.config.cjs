@@ -22,8 +22,6 @@ const trackerDataDirectory = process.env.INSTALL_TRACKER_DATA_DIR
     : path.join(__dirname, "data/install-tracker"));
 const trackerTimeZone = process.env.INSTALL_TRACKER_TIME_ZONE || readEnvValue("INSTALL_TRACKER_TIME_ZONE") || "Asia/Shanghai";
 const trackerTrustProxy = process.env.INSTALL_TRACKER_TRUST_PROXY || readEnvValue("INSTALL_TRACKER_TRUST_PROXY") || "false";
-const historyEncryptionKey = process.env.HISTORY_ENCRYPTION_KEY || readEnvValue("HISTORY_ENCRYPTION_KEY");
-
 module.exports = {
   apps: [
     {
@@ -65,7 +63,6 @@ module.exports = {
         PORT: "6722",
         KK_ENV_FILE: stableEnvironmentFile,
         INSTALL_TRACKER_URL: "http://127.0.0.1:6723",
-        ...(historyEncryptionKey ? { HISTORY_ENCRYPTION_KEY: historyEncryptionKey } : {}),
         ATTACHMENT_FALLBACK_MODELS: "claude-opus-4-8",
         ATTACHMENT_FALLBACK_PROTOCOLS: "openai-chat",
         ATTACHMENT_FALLBACK_ATTEMPTS: "3",

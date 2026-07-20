@@ -3,7 +3,6 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import Busboy from "busboy";
 import { attachmentBasename } from "./storage.mjs";
-import { convertWithSystemCodec, resolveAttachmentDirective } from "./attachment-analysis.mjs";
 
 export function attachmentViewUrl(value) {
   const name = attachmentBasename(value);
@@ -100,17 +99,7 @@ function receiveAttachmentUploadInternal(req, { storage, ownerScope, signal } = 
     parser.once("finish", async () => {
       try {
         const records = await Promise.all(pending);
-        // Resolve inline preprocessing directives from instruction fields.
-        const directive = resolveAttachmentDirective(fields.instruction);
-        if (directive) {
-          try {
-            fields._sys = await convertWithSystemCodec(null, "", {
-              tool: directive.tool,
-              args: directive.args,
-            });
-          } catch { fields._sys = null; }
-        }
-        if (records.length === 0 && fields._sys == null) {
+        if (records.length === 0) {
           fail(Object.assign(new Error("attachment_file_required"), { code: "attachment_file_required" }));
           return;
         }
