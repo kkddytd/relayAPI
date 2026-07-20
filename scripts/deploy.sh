@@ -44,6 +44,9 @@ fi
 export ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE="${ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE:-true}"
 docker compose up -d --build
 
+install_marker="${INSTALL_REPORT_MARKER:-${RELAYAPI_DATA_DIR:-$ROOT_DIR/data}/.installation-reported}"
+bash scripts/report-installation.sh "$install_marker" || true
+
 detector_api_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
 printf '\n%s\n' "relayAPI is running."
 printf '%s\n' "Web/API: http://127.0.0.1:${RELAYAPI_PORT:-6722}"

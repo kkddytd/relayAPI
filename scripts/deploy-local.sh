@@ -73,6 +73,7 @@ if [[ "$healthy" != "true" ]]; then
   rm -f "$pid_file"
   exit 1
 fi
+bash scripts/report-installation.sh "$runtime_directory/.installation-reported" || true
 printf '%s\n' "relayAPI started in background (PID $server_pid)."
 printf '%s\n' "Logs: $log_file"
 printf '%s\n' "Stop: kill $server_pid (or kill \"\$(cat '$pid_file')\")"

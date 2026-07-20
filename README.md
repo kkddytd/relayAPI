@@ -217,7 +217,7 @@ curl -X POST 'http://127.0.0.1:6722/api/v1/detections' \
 
 本地 Node.js 一键部署默认监听 `0.0.0.0`，因此服务器或局域网可直接打开网页；Docker Compose 也默认监听容器内的 `0.0.0.0`。更换对外端口时，Docker 使用 `RELAYAPI_PORT=8080 bash scripts/deploy.sh`，本地 Node.js 使用 `PORT=8080 bash scripts/deploy-local.sh`。安装统计服务仍使用内部端口 `6723`。
 
-如果使用仓库内的 Nginx 配置，默认路由是：`https://你的域名/` 为安装统计面板，`https://你的域名:8443/` 为模型检测网页/API。打开网页不会自动计为一次安装；客户端安装完成后必须发送一次空 POST：
+如果使用仓库内的 Nginx 配置，默认路由是：`https://你的域名/` 为安装统计面板，`https://你的域名:8443/` 为模型检测网页/API。打开网页不会自动计为一次安装。Docker 和本地一键部署脚本会在服务健康后向默认作者统计地址发送一次空 POST，并在 `data/.installation-reported` 写入本地标记；同一数据目录后续更新不会重复统计。其他客户端安装器可以直接调用：
 
 ```bash
 curl -X POST 'https://你的域名/api/v1/installations/report'
