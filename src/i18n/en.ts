@@ -1,12 +1,12 @@
 import type { I18nMessages } from "@/i18n/types";
 
 export const en: I18nMessages = {
-  seoTitle: "kk Model Quality Monitor | Test Claude, OpenAI, and Compatible APIs",
+  seoTitle: "relayAPI | AI Model Quality and API Compatibility Testing",
   seoDescription:
-    "Verify whether an API relay endpoint is trustworthy by checking protocol consistency, knowledge behavior, identity signals, and signature fingerprints before you integrate it.",
-  seoOgTitle: "kk Model Quality Monitor | Test Claude, OpenAI, and Compatible APIs",
+    "Open-source local AI model quality testing for Claude, GPT, Gemini, custom model IDs, protocol probes, and compatible API relays.",
+  seoOgTitle: "relayAPI | AI Model Quality and API Compatibility Testing",
   seoOgDescription:
-    "Quickly evaluate API relay services for protocol mismatch, identity issues, suspicious knowledge behavior, and missing signature traces.",
+    "Test response quality, protocol consistency, behavior evidence, and custom model compatibility without sending history to a third-party SaaS.",
   appTitle: "kk",
   appSubtitle: "Separate model quality, identity conflicts, and verifiable provenance.",
   navDetection: "Detection",

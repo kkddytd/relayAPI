@@ -1,0 +1,37 @@
+name: relayapi
+
+services:
+  relayapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${RELAYAPI_PORT:-6722}:6722"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 6722
+      DATA_DIR: /app/data
+      INSTALL_TRACKER_HOST: 127.0.0.1
+      INSTALL_TRACKER_PORT: 6723
+      INSTALL_TRACKER_DATA_DIR: /app/data/install-tracker
+      INSTALL_TRACKER_TRUST_PROXY: ${INSTALL_TRACKER_TRUST_PROXY:-false}
+      DETECTOR_API_KEYS: ${DETECTOR_API_KEYS:-}
+      ALLOW_LAN_WEB_WITHOUT_TURNSTILE: ${ALLOW_LAN_WEB_WITHOUT_TURNSTILE:-true}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      TRUSTED_PROXY_ADDRESSES: ${TRUSTED_PROXY_ADDRESSES:-}
+    volumes:
+      - ${RELAYAPI_DATA_DIR:-./data}:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:6722/api/v1/health')
+          .then((response) => process.exit(response.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

@@ -68,8 +68,8 @@ function DocTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
 export default function ApiDocs() {
   const { lang } = useI18n();
   const zh = lang === "zh";
-  const apiBaseUrl = "https://YOUR_SERVER_IP:8443";
-  const curl = useMemo(() => `curl -k -X POST '${apiBaseUrl}/api/v1/detections' \\
+  const apiBaseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:6722";
+  const curl = useMemo(() => `curl -X POST '${apiBaseUrl}/api/v1/detections' \\
   -H 'Authorization: Bearer YOUR_DETECTOR_API_KEY' \\
   -H 'Content-Type: application/json' \\
   --data '{
@@ -85,7 +85,7 @@ export default function ApiDocs() {
       "live_knowledge": false
     }
   }'`, [apiBaseUrl]);
-  const customProfileCurl = useMemo(() => `curl -k -X POST '${apiBaseUrl}/api/v1/detections' \\
+  const customProfileCurl = useMemo(() => `curl -X POST '${apiBaseUrl}/api/v1/detections' \\
   -H 'Authorization: Bearer YOUR_DETECTOR_API_KEY' \\
   -H 'Content-Type: application/json' \\
   --data '{
@@ -96,7 +96,7 @@ export default function ApiDocs() {
     "protocol": "anthropic",
     "question_mode": "official-random"
   }'`, [apiBaseUrl]);
-  const cacheCurl = useMemo(() => `curl -k -X POST '${apiBaseUrl}/api/v1/detections' \\
+  const cacheCurl = useMemo(() => `curl -X POST '${apiBaseUrl}/api/v1/detections' \\
   -H 'Authorization: Bearer YOUR_DETECTOR_API_KEY' \\
   -H 'Content-Type: application/json' \\
   --data '{
@@ -107,10 +107,10 @@ export default function ApiDocs() {
     "question_mode": "stable",
     "checks": { "cache": true, "cache_runs": 3, "live_knowledge": false }
   }'`, [apiBaseUrl]);
-  const localCurl = useMemo(() => `curl -k -X POST '${apiBaseUrl}/api/v1/detections' \\
+  const localCurl = useMemo(() => `curl -X POST '${apiBaseUrl}/api/v1/detections' \\
   -H 'Content-Type: application/json' \\
   --data '{"base_url":"https://api.example.com","upstream_api_key":"sk-test-only","model":"gpt-5.5"}'`, [apiBaseUrl]);
-  const attachmentDetectionCurl = useMemo(() => `curl -k -X POST '${apiBaseUrl}/api/v1/detections' \\
+  const attachmentDetectionCurl = useMemo(() => `curl -X POST '${apiBaseUrl}/api/v1/detections' \\
   -H 'Authorization: Bearer YOUR_DETECTOR_API_KEY' \\
   -F 'request={"base_url":"https://api.example.com","upstream_api_key":"sk-test-only","model":"claude-opus-4-8","protocol":"anthropic"}' \\
   -F 'files=@./generated-003.png'`, [apiBaseUrl]);
@@ -321,7 +321,7 @@ export default function ApiDocs() {
     ? [
         ["live_knowledge.status", "enum", "passed / failed / no-live-access / unavailable / skipped / not-requested。skipped 表示核心探针不可用，本次未继续消耗额度运行实时知识请求。"],
         ["live_knowledge.reason", "string | undefined", "跳过时的机器可读原因，例如 core_unavailable。"],
-        ["live_knowledge.source_snapshot_fetched", "boolean", "true 表示 kk 服务端已获得并验证公开源快照；快照可能来自本次拉取或本地缓存，不表示模型已联网。"],
+        ["live_knowledge.source_snapshot_fetched", "boolean", "true 表示 relayAPI 服务端已获得并验证公开源快照；快照可能来自本次拉取或本地缓存，不表示模型已联网。"],
         ["live_knowledge.source_cache_status", "miss | hit | stale | null", "miss 表示本次拉取，hit 表示使用未过期本地快照，stale 表示公开源失败后使用同日降级快照。"],
         ["live_knowledge.source_cache_age_seconds", "number | null", "源快照年龄（秒）。"],
         ["live_knowledge.source_cache_ttl_seconds", "number | null", "源快照正常 TTL（秒）。"],
@@ -331,7 +331,7 @@ export default function ApiDocs() {
     : [
         ["live_knowledge.status", "enum", "passed / failed / no-live-access / unavailable / skipped / not-requested. skipped means the core probes were unavailable, so no additional live-knowledge request was sent."],
         ["live_knowledge.reason", "string | undefined", "Machine-readable skip reason, such as core_unavailable."],
-        ["live_knowledge.source_snapshot_fetched", "boolean", "True means the kk server obtained and validated a public source snapshot, either from this request or local cache; it does not mean the model had network access."],
+        ["live_knowledge.source_snapshot_fetched", "boolean", "True means the relayAPI server obtained and validated a public source snapshot, either from this request or local cache; it does not mean the model had network access."],
         ["live_knowledge.source_cache_status", "miss | hit | stale | null", "miss means fetched for this request, hit means a fresh local snapshot, and stale means a same-day fallback after a source failure."],
         ["live_knowledge.source_cache_age_seconds", "number | null", "Age of the source snapshot in seconds."],
         ["live_knowledge.source_cache_ttl_seconds", "number | null", "Normal source-snapshot TTL in seconds."],
@@ -407,7 +407,7 @@ export default function ApiDocs() {
 
           <section id="live-knowledge-api">
             <h2 className="text-xl font-semibold text-foreground">{zh ? "实时知识字段" : "Live-knowledge fields"}</h2>
-            <p className="mb-4 mt-2 text-sm leading-7 text-muted-foreground">{zh ? "kk 服务端负责拉取当前公开快照，模型必须使用自身实时访问能力回答。快照标准答案从不发送给模型。" : "The kk server fetches the current public snapshot, while the model must answer using its own live-access capability. Snapshot answers are never sent to the model."}</p>
+            <p className="mb-4 mt-2 text-sm leading-7 text-muted-foreground">{zh ? "relayAPI 服务端负责拉取当前公开快照，模型必须使用自身实时访问能力回答。快照标准答案从不发送给模型。" : "The relayAPI server fetches the current public snapshot, while the model must answer using its own live-access capability. Snapshot answers are never sent to the model."}</p>
             <DocTable headers={zh ? ["字段", "类型/取值", "说明"] : ["Field", "Type / values", "Description"]} rows={liveKnowledgeRows} />
           </section>
 
@@ -423,6 +423,9 @@ export default function ApiDocs() {
               <p>{zh
                 ? "当前公开专用 GPT 范围是 gpt-5.6-sol、gpt-5.6-terra、gpt-5.5 和 gpt-5.4。只有这些档案使用官网近期知识探针；普通 gpt-5.6、Luna、GPT-4.1/4o 及其他 GPT 名称使用不依赖训练截止日期的确定性能力题，official_compatibility 返回 null。"
                 : "The current public dedicated GPT set is gpt-5.6-sol, gpt-5.6-terra, gpt-5.5, and gpt-5.4. Only those profiles use the public recent-knowledge probe. Plain gpt-5.6, Luna, GPT-4.1/4o, and other GPT IDs use deterministic cutoff-independent quality tasks, and official_compatibility is null."}</p>
+              <p>{zh
+                ? "网页端先选择最接近的评测档案，再在“上游模型 ID（可选）”填写中转站真实模型名；API 调用则把真实名称放入 model，把评测档案放入 profile_model。报告会同时返回 request.model、request.profile_model 和 request.profile_resolution。"
+                : "In the Web UI, select the closest evaluation profile first, then enter the relay's real model name in the upstream model ID field. API callers put the real name in model and the evaluation profile in profile_model. The report returns request.model, request.profile_model, and request.profile_resolution together."}</p>
             </div>
             <div className="mt-4"><CodeBlock code={customProfileCurl} label={zh ? "未知中转模型名显式选择 Fable 档案" : "Explicit Fable profile for an unknown relay model"} /></div>
           </section>

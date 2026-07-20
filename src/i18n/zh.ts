@@ -1,12 +1,12 @@
 import type { I18nMessages } from "@/i18n/types";
 
 export const zh: I18nMessages = {
-  seoTitle: "kk 模型质量监测 | 检测 Claude、OpenAI 与兼容接口",
+  seoTitle: "relayAPI | AI 模型质量检测与 API 兼容性评测",
   seoDescription:
-    "免费检测 API 中转站是否存在协议不一致、知识异常、身份错配与签名缺失等问题，帮助你快速识别 Claude、OpenAI 等接口是否可靠。",
-  seoOgTitle: "kk 模型质量监测 | 检测 Claude、OpenAI 与兼容接口",
+    "relayAPI 是开源、本地化的 AI 模型质量检测平台，支持 Claude、GPT、Gemini、自定义模型 ID、协议探针和 REST API。",
+  seoOgTitle: "relayAPI | AI 模型质量检测与 API 兼容性评测",
   seoOgDescription:
-    "快速检测 API 中转站是否靠谱，识别协议一致性、知识问答、身份一致性与签名信封兼容性等关键风险。",
+    "检测 Claude、GPT、Gemini 和兼容中转接口的协议一致性、响应质量、行为证据与自定义模型兼容性。",
   appTitle: "kk",
   appSubtitle: "分开核对模型质量、身份矛盾与可验证来源",
   navDetection: "检测",
