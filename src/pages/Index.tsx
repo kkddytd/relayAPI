@@ -3503,7 +3503,7 @@ const Index = () => {
 
   const deleteUploadedAttachments = useCallback(async (attachmentIds: string[]) => {
     const outcomes = await Promise.allSettled(attachmentIds.map(async (attachmentId) => {
-      const response = await fetch(`/api/v1/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+      const response = await fetch(`/api/v1/web/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
       return { attachmentId, removed: response.ok || response.status === 404 };
     }));
     return new Set(outcomes.flatMap((outcome) => (

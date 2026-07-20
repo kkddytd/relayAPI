@@ -108,12 +108,14 @@ export default function ApiDocs() {
     "checks": { "cache": true, "cache_runs": 3, "live_knowledge": false }
   }'`, [apiBaseUrl]);
   const localCurl = useMemo(() => `curl -X POST '${apiBaseUrl}/api/v1/detections' \\
+  -H 'Authorization: Bearer YOUR_DETECTOR_API_KEY' \\
   -H 'Content-Type: application/json' \\
   --data '{"base_url":"https://api.example.com","upstream_api_key":"sk-test-only","model":"gpt-5.5"}'`, [apiBaseUrl]);
   const attachmentDetectionCurl = useMemo(() => `curl -X POST '${apiBaseUrl}/api/v1/detections' \\
   -H 'Authorization: Bearer YOUR_DETECTOR_API_KEY' \\
   -F 'request={"base_url":"https://api.example.com","upstream_api_key":"sk-test-only","model":"claude-opus-4-8","protocol":"anthropic"}' \\
   -F 'files=@./generated-003.png'`, [apiBaseUrl]);
+  const apiKeyCommands = `npm run api-key:generate\nnpm run api-key:show\n# Docker-only host\nsed -n 's/^DETECTOR_API_KEYS=//p' .env`;
   const installationCurl = `curl -X POST '${installationReportBaseUrl}/api/v1/installations/report'`;
   const responseExample = `{
   "ok": true,
@@ -377,7 +379,11 @@ export default function ApiDocs() {
               <p>{zh ? "生产 API 可使用 Authorization: Bearer <检测 API Key>；受控反向代理部署也会自动签发无密码匿名 HttpOnly 会话，用于隔离网页历史和附件。upstream_api_key 只属于目标模型接口。" : "Production API calls may use a detector bearer key. A controlled reverse-proxy deployment can also issue a passwordless signed HttpOnly session that isolates Web history and attachments. upstream_api_key belongs only to the target model endpoint."}</p>
             </div>
             <CodeBlock code={curl} label={zh ? "生产调用" : "Production request"} />
-            <div className="mt-3"><CodeBlock code={localCurl} label={zh ? "本机模式（未配置检测 API Key）" : "Local mode (no detector key configured)"} /></div>
+            <div className="mt-3"><CodeBlock code={localCurl} label={zh ? "本机 / 已部署服务调用" : "Local or deployed service"} /></div>
+            <p className="mt-3 text-sm leading-7 text-muted-foreground">{zh
+              ? "检测 API Key 保存在项目根目录 .env 的 DETECTOR_API_KEYS 中，不会显示在网页或报告里。一键部署脚本首次运行会自动生成；手动生成或查看使用下面的命令，轮换后请重启服务。网页静态页、历史和网页附件使用独立匿名会话，默认可以直接打开，但这个匿名会话不能调用检测 API。"
+              : "The detector API key is stored in DETECTOR_API_KEYS inside the project-root .env file and is never shown in the Web UI or reports. Deployment scripts generate it on first run; use the commands below to create or view it, then restart after rotation. The static Web UI, history, and browser uploads use a separate anonymous session and are publicly reachable by default, but that session cannot call the detection API."}</p>
+            <div className="mt-3"><CodeBlock code={apiKeyCommands} label={zh ? "生成 / 查看检测 API Key" : "Generate / show detector API key"} /></div>
           </section>
 
           <section id="request">
@@ -487,7 +493,7 @@ export default function ApiDocs() {
           <section id="deployment" className="border-t border-border pt-8">
             <h2 className="text-xl font-semibold text-foreground">{zh ? "服务端配置" : "Server configuration"}</h2>
             <p className="mt-2 text-sm leading-7 text-muted-foreground">{zh ? "对外提供接口时至少配置 DETECTOR_API_KEYS。多个 Key 使用英文逗号分隔；DETECTION_MAX_CONCURRENCY 默认 2，rounds、cache 和 live_knowledge 会显著影响实际并发占用与上游费用。" : "Set DETECTOR_API_KEYS before public exposure. Separate multiple keys with commas. DETECTION_MAX_CONCURRENCY defaults to 2; rounds, cache, and live_knowledge materially affect occupancy and upstream cost."}</p>
-            <CodeBlock code={`HOST=127.0.0.1\nPORT=6722\nDETECTOR_API_KEYS=det_live_xxx,det_backup_xxx\nDETECTION_MAX_CONCURRENCY=2\nDETECTION_SEED_SECRET=replace-with-a-long-random-secret\nDATA_DIR=./data\nWEB_SESSION_SECRET=replace-with-32-random-bytes\nATTACHMENT_ORPHAN_RETENTION_HOURS=24\nINSTALL_TRACKER_URL=http://127.0.0.1:6723\nINSTALL_TRACKER_HOST=127.0.0.1\nINSTALL_TRACKER_PORT=6723\nINSTALL_TRACKER_DATA_DIR=./data/install-tracker\nALLOW_LAN_WEB_WITHOUT_TURNSTILE=false\nLOG_RETENTION_DAYS=7`} label=".env" />
+            <CodeBlock code={`HOST=127.0.0.1\nPORT=6722\nDETECTOR_API_KEYS=det_live_xxx,det_backup_xxx\nDETECTION_MAX_CONCURRENCY=2\nDETECTION_SEED_SECRET=replace-with-a-long-random-secret\nDATA_DIR=./data\nWEB_SESSION_SECRET=replace-with-32-random-bytes\nATTACHMENT_ORPHAN_RETENTION_HOURS=24\nINSTALL_TRACKER_URL=http://127.0.0.1:6723\nINSTALL_TRACKER_HOST=127.0.0.1\nINSTALL_TRACKER_PORT=6723\nINSTALL_TRACKER_DATA_DIR=./data/install-tracker\nALLOW_PUBLIC_WEB_WITHOUT_TURNSTILE=true\nALLOW_LAN_WEB_WITHOUT_TURNSTILE=false\nLOG_RETENTION_DAYS=7`} label=".env" />
           </section>
         </div>
       </main>

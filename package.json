@@ -15,6 +15,8 @@
     "deploy": "bash scripts/deploy.sh",
     "deploy:docker": "bash scripts/deploy.sh",
     "deploy:local": "bash scripts/deploy-local.sh",
+    "api-key:generate": "node scripts/generate-api-key.mjs",
+    "api-key:show": "node scripts/generate-api-key.mjs --show",
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:restart": "pm2 restart ecosystem.config.cjs --update-env",
     "pm2:stop": "pm2 stop kk-model-monitor kangkang-install-tracker && pm2 delete kk-model-monitor kangkang-install-tracker",

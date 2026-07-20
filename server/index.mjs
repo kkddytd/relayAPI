@@ -132,6 +132,7 @@ const allowPrivateUpstreams = process.env.ALLOW_PRIVATE_UPSTREAMS === "true";
 const turnstileSecret = process.env.TURNSTILE_SECRET_KEY || "";
 const allowPublicProbeWithoutTurnstile = process.env.ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE === "true";
 const allowLanWebWithoutTurnstile = process.env.ALLOW_LAN_WEB_WITHOUT_TURNSTILE === "true";
+const allowPublicWebWithoutTurnstile = process.env.ALLOW_PUBLIC_WEB_WITHOUT_TURNSTILE !== "false";
 const trustedWebProxyToken = process.env.TRUSTED_WEB_PROXY_TOKEN || "";
 const internalProbeToken = randomUUID();
 const detectorApiKeys = (process.env.DETECTOR_API_KEYS || process.env.DETECTOR_API_KEY || "")
@@ -709,7 +710,7 @@ function detectionApiAuthorization(req) {
     : { allowed: false, status: 401, code: "invalid_detector_api_key" };
 }
 
-function webDataAuthorization(req, res) {
+function webDataAuthorization(req, res, { allowPublic = true } = {}) {
   if (isDirectLoopbackRequest(req)) {
     return { allowed: true, mode: "local", ownerScope: "local", fingerprint: null };
   }
@@ -720,6 +721,15 @@ function webDataAuthorization(req, res) {
     return {
       allowed: true,
       mode: isTrustedWebProxyRequest(req) ? "trusted-proxy" : "lan",
+      ownerScope: `web:${credentialFingerprint(session)}`,
+      fingerprint: null,
+    };
+  }
+  if (allowPublic && allowPublicWebWithoutTurnstile) {
+    const session = ensureWebSession(req, res);
+    return {
+      allowed: true,
+      mode: "public-web",
       ownerScope: `web:${credentialFingerprint(session)}`,
       fingerprint: null,
     };
@@ -738,6 +748,14 @@ function webDataAuthorization(req, res) {
     status: turnstileSecret ? 403 : apiAuthorization.status || 403,
     code: turnstileSecret ? "turnstile_required" : apiAuthorization.code || "web_access_denied",
   };
+}
+
+// The browser UI has its own anonymous session so that a public page can
+// read its own history and upload files. Public Web access must not silently
+// become public programmatic detection access: API routes accept a detector
+// bearer key, localhost, or an explicitly trusted/verified Web request only.
+function detectorRouteAuthorization(req, res) {
+  return webDataAuthorization(req, res, { allowPublic: false });
 }
 
 function requestPublicBaseUrl(req) {
@@ -2737,7 +2755,7 @@ async function executePersistedDetection(value, {
 async function handleAttachmentUpload(req, res) {
   if (!ensureApiMethod(req, res, "POST")) return;
   req.setTimeout(0);
-  const authorization = webDataAuthorization(req, res);
+  const authorization = detectorRouteAuthorization(req, res);
   if (!authorization.allowed) {
     sendApiError(res, authorization.status || 403, authorization.code || "attachment_access_denied", "Attachment upload requires local, Turnstile, or detector API access");
     return;
@@ -2769,9 +2787,11 @@ async function handleAttachmentUpload(req, res) {
   }
 }
 
-async function handleAttachmentDelete(req, res, attachmentId) {
+async function handleAttachmentDelete(req, res, attachmentId, { webSession = false } = {}) {
   if (!ensureApiMethod(req, res, "DELETE")) return;
-  const authorization = webDataAuthorization(req, res);
+  const authorization = webSession
+    ? webDataAuthorization(req, res)
+    : detectorRouteAuthorization(req, res);
   if (!authorization.allowed) {
     sendApiError(res, authorization.status || 403, authorization.code || "attachment_access_denied", "Attachment deletion requires local, verified Web, or detector API access");
     return;
@@ -2792,6 +2812,10 @@ async function handleAttachmentDelete(req, res, attachmentId) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Vary", "Cookie, Authorization");
   sendJson(res, 200, { ok: true, deleted: true, id: attachmentId });
+}
+
+async function handleWebAttachmentDelete(req, res, attachmentId) {
+  return handleAttachmentDelete(req, res, attachmentId, { webSession: true });
 }
 
 async function handleWebAttachmentAnalysis(req, res) {
@@ -3201,7 +3225,7 @@ async function handleMultipartDetectionApi(req, res, authorization) {
 
 async function handleDetectionApi(req, res) {
   if (!ensureApiMethod(req, res, "POST")) return;
-  const authorization = webDataAuthorization(req, res);
+  const authorization = detectorRouteAuthorization(req, res);
   if (!authorization.allowed) {
     if (authorization.status === 401) res.setHeader("WWW-Authenticate", 'Bearer realm="kangkang-detection-api"');
     sendApiError(
@@ -3562,6 +3586,19 @@ async function handleServerRequest(req, res) {
       return;
     }
     await handleAttachmentDelete(req, res, attachmentId);
+    return;
+  }
+
+  const webAttachmentDeleteMatch = pathname.match(/^\/api\/v1\/web\/attachments\/([^/]+)$/);
+  if (webAttachmentDeleteMatch) {
+    let attachmentId;
+    try {
+      attachmentId = decodeURIComponent(webAttachmentDeleteMatch[1]);
+    } catch {
+      sendApiError(res, 400, "invalid_attachment_id", "Attachment ID is invalid");
+      return;
+    }
+    await handleWebAttachmentDelete(req, res, attachmentId);
     return;
   }
 

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, request as playwrightRequest, test } from "@playwright/test";
 
 test("API reference is reachable from the shared navigation", async ({ page }) => {
   await page.goto("/");
@@ -138,6 +138,33 @@ test("public API metadata and validation routes return the documented shape", as
     ok: false,
     error: { code: "detector_api_not_configured" },
   });
+});
+
+test("public Web sessions can open history but cannot call the detector API", async ({ baseURL }) => {
+  const publicWeb = await playwrightRequest.newContext({
+    baseURL,
+    extraHTTPHeaders: { "x-forwarded-for": "203.0.113.90" },
+  });
+  try {
+    const history = await publicWeb.get("/api/v1/web/history");
+    expect(history.status()).toBe(200);
+    expect(history.headers()["set-cookie"]).toContain("kk_web_session=");
+
+    const detection = await publicWeb.post("/api/v1/detections", {
+      data: {
+        base_url: "https://relay.example",
+        upstream_api_key: "sk-test-only",
+        model: "claude-fable-5",
+      },
+    });
+    expect(detection.status()).toBe(503);
+    await expect(detection.json()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "detector_api_not_configured" },
+    });
+  } finally {
+    await publicWeb.dispose();
+  }
 });
 
 test("API documentation remains within the mobile viewport", async ({ page }) => {

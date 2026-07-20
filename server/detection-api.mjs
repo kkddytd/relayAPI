@@ -3458,7 +3458,7 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
       "/api/v1/detections": {
         post: {
           summary: "Run a synchronous model detection",
-          description: "A detector bearer key or signed anonymous Web session authenticates this service. Send JSON for a request that references legacy uploaded attachments, or send multipart/form-data with a request JSON field and files for one-step attachment testing. upstream_api_key is sent only to the target endpoint.",
+          description: "A detector bearer key, localhost request, or explicitly trusted/verified Web session authenticates this service. The public anonymous Web session is intentionally not accepted here. Send JSON for a request that references legacy uploaded attachments, or send multipart/form-data with a request JSON field and files for one-step attachment testing. upstream_api_key is sent only to the target endpoint.",
           security: [{ bearerAuth: [] }, { webSession: [] }],
           requestBody: {
             required: true,

@@ -20,7 +20,8 @@ if [[ ! -f .env && -f .env.example ]]; then
   cp .env.example .env
 fi
 
-npm install --no-audit --no-fund
+node scripts/generate-api-key.mjs --ensure
+npm ci --no-audit --no-fund
 npm run build
 
 printf '\n%s\n' "relayAPI is starting."
