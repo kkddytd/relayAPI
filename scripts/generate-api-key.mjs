@@ -11,16 +11,16 @@ const showOnly = process.argv.includes("--show");
 const helpOnly = process.argv.includes("--help") || process.argv.includes("-h");
 
 if (helpOnly) {
-  console.log("Usage: node scripts/generate-api-key.mjs [--ensure|--show]");
-  console.log("  --ensure  create a key only when DETECTOR_API_KEYS is empty");
-  console.log("  --show    print the configured detector key");
+  console.log("用法：node scripts/generate-api-key.mjs [--ensure|--show]");
+  console.log("  --ensure  仅在 DETECTOR_API_KEYS 为空时创建密钥");
+  console.log("  --show    显示已配置的检测 API Key");
   process.exit(0);
 }
 
 const knownArguments = new Set(["--ensure", "--show"]);
 const unknownArguments = process.argv.slice(2).filter((argument) => !knownArguments.has(argument));
 if (unknownArguments.length > 0) {
-  console.error(`Unknown option: ${unknownArguments.join(", ")}`);
+  console.error(`未知选项：${unknownArguments.join(", ")}`);
   process.exit(2);
 }
 
@@ -52,7 +52,7 @@ const current = configuredKey(content);
 
 if (showOnly) {
   if (!current) {
-    console.error(`No detector API key is configured in ${envPath}`);
+    console.error(`${envPath} 中尚未配置检测 API Key。`);
     process.exit(1);
   }
   console.log(current);
@@ -60,7 +60,7 @@ if (showOnly) {
 }
 
 if (ensureOnly && current) {
-  console.log(`Detector API key is already configured in ${envPath}`);
+  console.log(`检测 API Key 已配置在 ${envPath}。`);
   process.exit(0);
 }
 
@@ -73,5 +73,5 @@ try {
 } catch {
   // Ignore filesystems without POSIX permissions.
 }
-console.log(`Generated detector API key and stored it in ${envPath}:`);
+console.log(`已生成检测 API Key，并保存到 ${envPath}：`);
 console.log(generated);

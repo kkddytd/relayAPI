@@ -8,7 +8,6 @@ endpoint="${INSTALL_REPORT_ENDPOINT:-https://claude-ai.zmkk.edu.kg/api/v1/instal
 marker_file="${1:-${INSTALL_REPORT_MARKER:-$ROOT_DIR/data/.installation-reported}}"
 
 if [[ -f "$marker_file" ]]; then
-  printf '%s\n' "Installation report was already sent for this deployment."
   exit 0
 fi
 
@@ -42,10 +41,8 @@ elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
 fi
 
 if [[ "$reported" != "true" ]]; then
-  printf '%s\n' "Installation report failed; the next deployment will retry: $endpoint" >&2
   exit 1
 fi
 
 mkdir -p "$(dirname "$marker_file")"
 printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$marker_file"
-printf '%s\n' "Installation report sent: $endpoint"

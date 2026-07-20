@@ -5,35 +5,42 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 if ! command -v node >/dev/null 2>&1; then
-  printf '%s\n' "Node.js 20.19+ or 22 LTS is required." >&2
+  printf '%s\n' "需要 Node.js 20.19 或更高版本，推荐使用 Node.js 22 LTS。" >&2
   exit 1
 fi
 
 if ! command -v npm >/dev/null 2>&1; then
-  printf '%s\n' "npm is required." >&2
+  printf '%s\n' "未检测到 npm，请先安装 Node.js 和 npm。" >&2
   exit 1
 fi
 
-node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const supported = (major === 20 && minor >= 19) || major >= 22; if (!supported) process.exit(1)'
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const supported = (major === 20 && minor >= 19) || major >= 22; if (!supported) process.exit(1)'; then
+  printf '%s\n' "当前 Node.js 版本过低，需要 20.19 或更高版本，推荐使用 Node.js 22 LTS。" >&2
+  exit 1
+fi
 
 if [[ ! -f .env && -f .env.example ]]; then
   cp .env.example .env
 fi
 
-node scripts/generate-api-key.mjs --ensure
+. "$ROOT_DIR/scripts/ensure-history-key.sh"
+node scripts/generate-api-key.mjs --ensure >/dev/null
+printf '%s\n' "正在安装项目依赖..."
 npm ci --no-audit --no-fund
+printf '%s\n' "正在构建网页资源..."
 npm run build
 export ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE="${ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE:-true}"
 
 detector_api_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
-printf '\n%s\n' "relayAPI is starting."
-printf '%s\n' "Web/API: http://127.0.0.1:${PORT:-6722}"
-printf '%s\n' "API docs: http://127.0.0.1:${PORT:-6722}/api-docs"
-printf '%s\n' "Detector API key: ${detector_api_key:-not-configured}"
-printf '%s\n' "Key file:  $ROOT_DIR/.env (DETECTOR_API_KEYS)"
+printf '\n%s\n' "正在启动 relayAPI..."
+printf '%s\n' "访问地址：http://127.0.0.1:${PORT:-6722}"
+printf '%s\n' "API 文档：http://127.0.0.1:${PORT:-6722}/api-docs"
+printf '%s\n' "检测 API Key：${detector_api_key:-未配置}"
+printf '%s\n' "API Key 配置文件：$ROOT_DIR/.env（DETECTOR_API_KEYS）"
+printf '%s\n' "历史密钥配置文件：$ROOT_DIR/.env.local（HISTORY_ENCRYPTION_KEY）"
 
 if [[ "${FOREGROUND:-false}" == "true" ]]; then
-  printf '%s\n' "Foreground mode enabled; press Ctrl+C to stop."
+  printf '%s\n' "已启用前台运行模式，按 Ctrl+C 停止服务。"
   exec npm run start
 fi
 
@@ -44,8 +51,8 @@ log_file="${RELAYAPI_LOG_FILE:-$runtime_directory/relayapi.log}"
 if [[ -f "$pid_file" ]]; then
   existing_pid="$(tr -d '[:space:]' < "$pid_file")"
   if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
-    printf '%s\n' "relayAPI is already running (PID $existing_pid)."
-    printf '%s\n' "Logs: $log_file"
+    printf '%s\n' "relayAPI 已在运行（PID：$existing_pid）。"
+    printf '%s\n' "日志文件：$log_file"
     exit 0
   fi
   rm -f "$pid_file"
@@ -67,13 +74,13 @@ for _ in {1..20}; do
   sleep 0.25
 done
 if [[ "$healthy" != "true" ]]; then
-  printf '%s\n' "relayAPI failed to start. Check $log_file" >&2
+  printf '%s\n' "relayAPI 启动失败，请查看日志：$log_file" >&2
   tail -n 40 "$log_file" >&2 || true
   kill "$server_pid" 2>/dev/null || true
   rm -f "$pid_file"
   exit 1
 fi
 bash scripts/report-installation.sh "$runtime_directory/.installation-reported" || true
-printf '%s\n' "relayAPI started in background (PID $server_pid)."
-printf '%s\n' "Logs: $log_file"
-printf '%s\n' "Stop: kill $server_pid (or kill \"\$(cat '$pid_file')\")"
+printf '%s\n' "relayAPI 已在后台启动（PID：$server_pid）。"
+printf '%s\n' "日志文件：$log_file"
+printf '%s\n' "停止命令：kill $server_pid（或执行 kill \"\$(cat '$pid_file')\"）"

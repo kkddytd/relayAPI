@@ -4,9 +4,11 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
+import { HISTORY_ENCRYPTION_KEY } from "./constants.mjs";
 import { createAppStorage, credentialFingerprint, sanitizeDisplayUrl } from "./storage.mjs";
 
 const temporaryDirectories = [];
+const originalHistoryEncryptionKey = process.env.HISTORY_ENCRYPTION_KEY;
 
 function temporaryDirectory() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "kangkang-storage-"));
@@ -33,6 +35,8 @@ function storeAttachment(storage, { id, ownerScope, createdAt = new Date().toISO
 }
 
 afterEach(() => {
+  if (originalHistoryEncryptionKey === undefined) delete process.env.HISTORY_ENCRYPTION_KEY;
+  else process.env.HISTORY_ENCRYPTION_KEY = originalHistoryEncryptionKey;
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -151,9 +155,11 @@ describe("local SQLite storage", () => {
   });
 
   it("uses the built-in history key when no deployment secret is configured", () => {
+    delete process.env.HISTORY_ENCRYPTION_KEY;
     const dataDirectory = temporaryDirectory();
     const databasePath = path.join(dataDirectory, "history.sqlite");
     const first = createAppStorage({ dataDirectory, databasePath });
+    expect(process.env.HISTORY_ENCRYPTION_KEY).toBe(HISTORY_ENCRYPTION_KEY);
     const runId = first.createRun({
       source: "web",
       request: { base_url: "https://example.com", upstream_api_key: "secret", model: "gpt-test" },
@@ -167,6 +173,31 @@ describe("local SQLite storage", () => {
       model: "gpt-test",
     });
     second.close();
+  });
+
+  it("uses HISTORY_ENCRYPTION_KEY from process.env for persisted history", () => {
+    const dataDirectory = temporaryDirectory();
+    const databasePath = path.join(dataDirectory, "history.sqlite");
+    process.env.HISTORY_ENCRYPTION_KEY = "environment-history-key";
+    const first = createAppStorage({ dataDirectory, databasePath });
+    const runId = first.createRun({
+      source: "web",
+      request: { base_url: "https://example.com", upstream_api_key: "secret", model: "gpt-test" },
+    });
+    first.close();
+
+    process.env.HISTORY_ENCRYPTION_KEY = "different-environment-history-key";
+    const wrongKey = createAppStorage({ dataDirectory, databasePath });
+    expect(() => wrongKey.getRunForRetry(runId)).toThrow();
+    wrongKey.close();
+
+    process.env.HISTORY_ENCRYPTION_KEY = "environment-history-key";
+    const reopened = createAppStorage({ dataDirectory, databasePath });
+    expect(reopened.getRunForRetry(runId)?.request).toMatchObject({
+      upstream_api_key: "secret",
+      model: "gpt-test",
+    });
+    reopened.close();
   });
 
   it("isolates history and attachment lifecycle by owner scope", () => {

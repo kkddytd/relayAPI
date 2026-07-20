@@ -33,6 +33,11 @@ function normalizeConfiguredKey(value) {
 function loadEncryptionKey(configuredKey) {
   const explicit = normalizeConfiguredKey(configuredKey);
   if (explicit) return explicit;
+  if (!String(process.env.HISTORY_ENCRYPTION_KEY || "").trim()) {
+    process.env.HISTORY_ENCRYPTION_KEY = HISTORY_ENCRYPTION_KEY;
+  }
+  const environment = normalizeConfiguredKey(process.env.HISTORY_ENCRYPTION_KEY);
+  if (environment) return environment;
   return normalizeConfiguredKey(HISTORY_ENCRYPTION_KEY);
 }
 

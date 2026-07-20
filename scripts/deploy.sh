@@ -5,12 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 if ! command -v docker >/dev/null 2>&1; then
-  printf '%s\n' "Docker is required. Install Docker Engine and Docker Compose Plugin first." >&2
+  printf '%s\n' "未检测到 Docker，请先安装 Docker Engine 和 Docker Compose 插件。" >&2
   exit 1
 fi
 
 if ! docker compose version >/dev/null 2>&1; then
-  printf '%s\n' "Docker Compose Plugin is required (docker compose)." >&2
+  printf '%s\n' "未检测到 Docker Compose 插件，请确认 docker compose 命令可用。" >&2
   exit 1
 fi
 
@@ -22,6 +22,7 @@ mkdir -p data
 if [[ ! -f .env && -f .env.example ]]; then
   cp .env.example .env
 fi
+. "$ROOT_DIR/scripts/ensure-history-key.sh"
 configured_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
 if [[ -z "${configured_key//[[:space:]]/}" ]]; then
   if command -v openssl >/dev/null 2>&1; then
@@ -38,18 +39,20 @@ if [[ -z "${configured_key//[[:space:]]/}" ]]; then
   ' .env > "$temporary_env"
   mv "$temporary_env" .env
   chmod 600 .env 2>/dev/null || true
-  printf '%s\n' "Generated detector API key and stored it in $ROOT_DIR/.env:"
+  printf '%s\n' "已生成检测 API Key，并保存到 $ROOT_DIR/.env："
   printf '%s\n' "$generated_key"
 fi
 export ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE="${ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE:-true}"
+printf '%s\n' "正在构建并启动 relayAPI，请稍候..."
 docker compose up -d --build
 
 install_marker="${INSTALL_REPORT_MARKER:-${RELAYAPI_DATA_DIR:-$ROOT_DIR/data}/.installation-reported}"
 bash scripts/report-installation.sh "$install_marker" || true
 
 detector_api_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
-printf '\n%s\n' "relayAPI is running."
-printf '%s\n' "Web/API: http://127.0.0.1:${RELAYAPI_PORT:-6722}"
-printf '%s\n' "Detector API key: ${detector_api_key:-not-configured}"
-printf '%s\n' "Key file:  $ROOT_DIR/.env (DETECTOR_API_KEYS)"
-printf '%s\n' "Logs:     docker compose logs -f relayapi"
+printf '\n%s\n' "relayAPI 已启动。"
+printf '%s\n' "访问地址：http://127.0.0.1:${RELAYAPI_PORT:-6722}"
+printf '%s\n' "检测 API Key：${detector_api_key:-未配置}"
+printf '%s\n' "API Key 配置文件：$ROOT_DIR/.env（DETECTOR_API_KEYS）"
+printf '%s\n' "历史密钥配置文件：$ROOT_DIR/.env.local（HISTORY_ENCRYPTION_KEY）"
+printf '%s\n' "查看日志：docker compose logs -f relayapi"
