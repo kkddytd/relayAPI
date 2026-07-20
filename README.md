@@ -144,13 +144,23 @@ curl -X POST 'https://YOUR_SERVER/api/v1/installations/report'
 环境要求：Node.js 20 或更高版本。
 
 ```bash
-git clone https://github.com/YOUR_ORG/kk-model-monitor.git
-cd kk-model-monitor
+git clone https://github.com/kkddytd/relayAPI.git
+cd relayAPI
 npm install
 cp .env.example .env.local
+openssl rand -base64 32
+# 将上一步生成的值写入 .env.local 的 HISTORY_ENCRYPTION_KEY
 npm run build
 npm run start
 ```
+
+HISTORY_ENCRYPTION_KEY 只需要在每个部署环境中设置一次稳定值，不要提交到 GitHub：
+
+```dotenv
+HISTORY_ENCRYPTION_KEY=你的部署专用长期密钥
+```
+
+同一部署后续发布必须继续使用原值，否则旧的检测历史无法解密。不同使用者可以生成各自的密钥；密钥只保护本地 SQLite 历史，不需要和项目作者或其他部署共享。
 
 默认地址：
 
