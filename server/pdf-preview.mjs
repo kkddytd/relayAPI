@@ -6,13 +6,65 @@ import { promisify } from "node:util";
 import pdfImagePackage from "pdf-image";
 import sharp from "sharp";
 
-const { PDFImage } = pdfImagePackage;
+const { PDFImage: PackagePDFImage } = pdfImagePackage;
 const execFileAsync = promisify(execFile);
 const DEFAULT_PAGE_LIMIT = 4;
 const MAX_PAGE_LIMIT = 8;
 const TARGET_BYTES = 4 * 1024 * 1024;
 const DEFAULT_OPERATION_TIMEOUT_MS = 60_000;
 const MAX_OPERATION_TIMEOUT_MS = 300_000;
+const COMMAND_MAX_BUFFER = 2 * 1024 * 1024;
+
+class SafePDFImage extends PackagePDFImage {
+  constructor(pdfFilePath, options = {}) {
+    super(pdfFilePath, options);
+    this.execFileImpl = options.execFileImpl || execFileAsync;
+    this.commandTimeoutMs = options.commandTimeoutMs || DEFAULT_OPERATION_TIMEOUT_MS;
+  }
+
+  async numberOfPages() {
+    const command = await this.execFileImpl("pdfinfo", [this.pdfFilePath], {
+      timeout: this.commandTimeoutMs,
+      maxBuffer: COMMAND_MAX_BUFFER,
+      windowsHide: true,
+    });
+    const info = this.parseGetInfoCommandOutput(command.stdout);
+    return info.Pages;
+  }
+
+  convertArguments(pageNumber) {
+    const options = Object.keys(this.convertOptions).sort().flatMap((optionName) => (
+      this.convertOptions[optionName] === null
+        ? [optionName]
+        : [optionName, String(this.convertOptions[optionName])]
+    ));
+    const source = `${this.pdfFilePath}[${pageNumber}]`;
+    const output = this.getOutputImagePathForPage(pageNumber);
+    return this.useGM
+      ? ["convert", ...options, source, output]
+      : [...options, source, output];
+  }
+
+  async convertPage(pageNumber) {
+    const outputPath = this.getOutputImagePathForPage(pageNumber);
+    let imageFileStat;
+    try {
+      imageFileStat = await fs.stat(outputPath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    if (imageFileStat) {
+      const pdfFileStat = await fs.stat(this.pdfFilePath);
+      if (imageFileStat.mtime >= pdfFileStat.mtime) return outputPath;
+    }
+    await this.execFileImpl(this.useGM ? "gm" : "convert", this.convertArguments(pageNumber), {
+      timeout: this.commandTimeoutMs,
+      maxBuffer: COMMAND_MAX_BUFFER,
+      windowsHide: true,
+    });
+    return outputPath;
+  }
+}
 
 function boundedPageLimit(value) {
   const parsed = Math.trunc(Number(value));
@@ -141,7 +193,7 @@ async function combinedPreview(imagePaths) {
   return smallest;
 }
 
-async function renderWithBackend({ PDFImageClass, backend, pdfPath, outputDirectory, pageLimit, signal, timeoutMs }) {
+async function renderWithBackend({ PDFImageClass, backend, pdfPath, outputDirectory, pageLimit, signal, timeoutMs, execFileImpl }) {
   const renderer = new PDFImageClass(pdfPath, {
     outputDirectory,
     pdfFileBaseName: "page",
@@ -152,6 +204,8 @@ async function renderWithBackend({ PDFImageClass, backend, pdfPath, outputDirect
       "-quality": "88",
       "-resize": "1400x1800",
     },
+    commandTimeoutMs: timeoutMs,
+    execFileImpl,
   });
   const totalPages = Math.trunc(Number(await withOperationTimeout(() => renderer.numberOfPages(), { signal, timeoutMs })));
   if (!Number.isFinite(totalPages) || totalPages < 1) throw new Error("pdf_preview_invalid_page_count");
@@ -168,16 +222,16 @@ async function renderWithBackend({ PDFImageClass, backend, pdfPath, outputDirect
 export async function renderPdfPreview(filePath, {
   pageLimit = process.env.PDF_PREVIEW_MAX_PAGES,
   backend,
-  PDFImageClass = PDFImage,
+  PDFImageClass = SafePDFImage,
   signal,
   timeoutMs = process.env.PDF_PREVIEW_TIMEOUT_MS,
+  execFileImpl = execFileAsync,
 } = {}) {
   const operationTimeoutMs = boundedTimeout(timeoutMs);
   if (signal?.aborted) throw abortReason(signal);
   const temporaryDirectory = await fs.mkdtemp(path.join(safeTemporaryRoot(), "relayapi-pdf-"));
   try {
-    const pdfPath = path.join(temporaryDirectory, "input.pdf");
-    await fs.copyFile(filePath, pdfPath);
+    const pdfPath = path.resolve(filePath);
     const backends = await availableBackends(backend);
     if (backends.length === 0) throw new Error("pdf_preview_renderer_unavailable");
     let lastError = null;
@@ -193,6 +247,7 @@ export async function renderPdfPreview(filePath, {
           pageLimit: boundedPageLimit(pageLimit),
           signal,
           timeoutMs: operationTimeoutMs,
+          execFileImpl,
         });
       } catch (error) {
         if (signal?.aborted || error?.name === "AbortError" || error?.code === "pdf_preview_timeout") throw error;

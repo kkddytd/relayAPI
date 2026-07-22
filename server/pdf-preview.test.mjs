@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe("PDF preview rendering", () => {
-  it("stages the original under a fixed name and renders representative pages", async () => {
+  it("uses the original storage path and renders representative pages", async () => {
     const directory = temporaryDirectory();
     const originalPath = path.join(directory, 'report"$(ignored).pdf');
     const original = Buffer.from("original PDF bytes stay untouched", "utf8");
@@ -62,8 +62,8 @@ describe("PDF preview rendering", () => {
     });
 
     expect(instances).toHaveLength(1);
-    expect(path.basename(instances[0].pdfPath)).toBe("input.pdf");
-    expect(instances[0].pdfPath).not.toContain("ignored");
+    expect(instances[0].pdfPath).toBe(path.resolve(originalPath));
+    expect(path.basename(instances[0].pdfPath)).toBe('report"$(ignored).pdf');
     expect(instances[0].options).toMatchObject({
       pdfFileBaseName: "page",
       convertExtension: "png",
@@ -76,19 +76,48 @@ describe("PDF preview rendering", () => {
       backend: "graphicsmagick",
     });
     expect((await sharp(result.buffer).metadata()).format).toBe("webp");
-    expect(fs.existsSync(path.dirname(instances[0].pdfPath))).toBe(false);
     expect(fs.readFileSync(originalPath)).toEqual(original);
+  });
+
+  it("passes the original path as an execFile argument", async () => {
+    const directory = temporaryDirectory();
+    const originalPath = path.join(directory, 'report "$(ignored)".pdf');
+    fs.writeFileSync(originalPath, "%PDF-test");
+    const calls = [];
+
+    const execFileImpl = async (command, args) => {
+      calls.push({ command, args });
+      if (command === "pdfinfo") return { stdout: "Pages: 1\n", stderr: "" };
+      const outputPath = args.at(-1);
+      fs.writeFileSync(outputPath, await sharp({
+        create: { width: 320, height: 180, channels: 3, background: "#345" },
+      }).png().toBuffer());
+      return { stdout: "", stderr: "" };
+    };
+
+    const result = await renderPdfPreview(originalPath, {
+      pageLimit: 1,
+      backend: "graphicsmagick",
+      execFileImpl,
+    });
+
+    expect((await sharp(result.buffer).metadata()).format).toBe("webp");
+    expect(calls[0]).toMatchObject({ command: "pdfinfo", args: [path.resolve(originalPath)] });
+    expect(calls[1].command).toBe("gm");
+    expect(calls[1].args).toContain(`${path.resolve(originalPath)}[0]`);
+    expect(calls[1].args.join(" ")).toContain('report "$(ignored)".pdf');
+    expect(fs.readFileSync(originalPath, "utf8")).toBe("%PDF-test");
   });
 
   it("cleans temporary files when conversion fails", async () => {
     const directory = temporaryDirectory();
     const originalPath = path.join(directory, "broken.pdf");
     fs.writeFileSync(originalPath, "%PDF-broken");
-    let stagedPath = null;
+    let outputDirectory = null;
 
     class FailingPDFImage {
-      constructor(pdfPath) {
-        stagedPath = pdfPath;
+      constructor(pdfPath, options) {
+        outputDirectory = options.outputDirectory;
       }
 
       async numberOfPages() {
@@ -100,7 +129,7 @@ describe("PDF preview rendering", () => {
       backend: "graphicsmagick",
       PDFImageClass: FailingPDFImage,
     })).rejects.toThrow("pdf_preview_conversion_failed");
-    expect(fs.existsSync(path.dirname(stagedPath))).toBe(false);
+    expect(fs.existsSync(outputDirectory)).toBe(false);
   });
 
   it("stops waiting when the request is aborted", async () => {
