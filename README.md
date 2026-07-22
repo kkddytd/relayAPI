@@ -142,7 +142,7 @@ RELAYAPI_PORT=8080 RELAYAPI_DATA_DIR=/srv/relayapi-data bash scripts/deploy.sh
 
 ### 本地 Node.js 一键部署
 
-环境要求：Node.js 22 LTS（或满足 Vite 8 要求的 Node.js 20.19+）。
+环境要求：Node.js 22 LTS（22.12+），或满足 Vite 8 要求的 Node.js 20.19+。
 
 一条命令获取源码、安装依赖、构建并启动：
 

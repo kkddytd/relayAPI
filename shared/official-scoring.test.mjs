@@ -3,6 +3,7 @@ import {
   OFFICIAL_CLAUDE_PROBE_HEADERS,
   OFFICIAL_CLAUDE_PROBE_METADATA_USER_ID,
   OFFICIAL_SCORING_REFERENCE,
+  normalizeOpenAiTokenUsage,
   officialGptModelMismatch,
   officialPassThreshold,
   scoreClaudeCompatibility,
@@ -13,10 +14,15 @@ import {
 describe("current public scoring reference", () => {
   it("pins both the score bundle and probe constants bundle", () => {
     expect(OFFICIAL_SCORING_REFERENCE).toMatchObject({
-      bundle: "shareReport-B_FOiUEI.js",
-      bundleSha256: "02593b4301418722cbd19200822a87a05f041314504f07f0e37aebab415267e8",
-      probeConstantsBundle: "probe-constants-YXB5_aNC.js",
-      probeConstantsSha256: "ec057d221fa24d106fb64ccbc5914ae04fedb1b6f7f602fe15833768bbb41bcf",
+      capturedAt: "2026-07-22",
+      bundle: "shareReport-vS9UoxUO.js",
+      bundleSha256: "32e3db32aa67543574ce9880093454a198d5f37359b91707d95ea41195696f8d",
+      probeConstantsBundle: "probe-constants-DpbHYFO2.js",
+      probeConstantsSha256: "d6f6bf9fa215d3de2c14d74b817f48ec2ac28cf124b07bef241643ea3e3bcfcd",
+      reasoningBundle: "reasoningCheck-JktxwfVY.js",
+      reasoningBundleSha256: "feef731234811199f4a7535d250e02994a77f084f803b5bbc95d2d49b15b9205",
+      algorithmRegistryBundle: "detection-algorithm-registry-B4hNxm78.js",
+      algorithmRegistryBundleSha256: "26788c314788bee39fd5c0ad1859a9d162771996466a67a6c1bb733cf0c08d67",
     });
     expect(JSON.parse(OFFICIAL_CLAUDE_PROBE_METADATA_USER_ID)).toMatchObject({
       device_id: expect.stringMatching(/^[a-f0-9]{64}$/),
@@ -202,6 +208,40 @@ describe("current public Claude compatibility formula", () => {
 });
 
 describe("current public GPT compatibility formula", () => {
+  it("normalizes inclusive OpenAI cache tokens before applying token penalties", () => {
+    expect(normalizeOpenAiTokenUsage({
+      prompt_tokens: 3000,
+      completion_tokens: 2100,
+      total_tokens: 5100,
+      prompt_tokens_details: {
+        cached_tokens: 1200,
+        cache_write_tokens: 300,
+      },
+    })).toMatchObject({
+      rawInputTokens: 3000,
+      inputTokens: 1500,
+      outputTokens: 2100,
+      totalTokens: 5100,
+      cacheReadTokens: 1200,
+      cacheWriteTokens: 300,
+      inclusiveCacheReadTokens: 1200,
+      inclusiveCacheWriteTokens: 300,
+    });
+
+    expect(normalizeOpenAiTokenUsage({
+      input_tokens: 3000,
+      output_tokens: 20,
+      cache_read_input_tokens: 1200,
+      cache_creation_input_tokens: 300,
+    })).toMatchObject({
+      inputTokens: 3000,
+      cacheReadTokens: 1200,
+      cacheWriteTokens: 300,
+      inclusiveCacheReadTokens: 0,
+      inclusiveCacheWriteTokens: 0,
+    });
+  });
+
   it("uses the family-specific public pass thresholds", () => {
     expect(officialPassThreshold("gpt-5.5")).toBe(70);
     expect(officialPassThreshold("gpt-5.6-sol")).toBe(70);
@@ -248,6 +288,33 @@ describe("current public GPT compatibility formula", () => {
         responseStructureStatus: "pass",
       }), model).toMatchObject({ supported: true, score: 100, mismatch: false });
     }
+  });
+
+  it("applies token penalties only to GPT 5.6 Sol and Terra", () => {
+    expect(scoreGptCompatibility({
+      algorithmModel: "gpt-5.6-sol",
+      reportedModel: "gpt-5.6-sol",
+      quizStatus: "pass",
+      protocolStatus: "pass",
+      responseStructureStatus: "pass",
+      tokenUsage: { inputTokens: 2001, outputTokens: 3001, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    })).toMatchObject({
+      baseScore: 100,
+      score: 91,
+      tokenPenalty: {
+        applicable: true,
+        breakdown: { input: 3, output: 6, cacheRead: 0, cacheWrite: 0 },
+        total: 9,
+      },
+    });
+    expect(scoreGptCompatibility({
+      algorithmModel: "gpt-5.5",
+      reportedModel: "gpt-5.5",
+      quizStatus: "pass",
+      protocolStatus: "pass",
+      responseStructureStatus: "pass",
+      tokenUsage: { inputTokens: 10000, outputTokens: 10000, cacheReadTokens: 10000, cacheWriteTokens: 10000 },
+    })).toMatchObject({ score: 100, tokenPenalty: { applicable: false, total: 0 } });
   });
 });
 

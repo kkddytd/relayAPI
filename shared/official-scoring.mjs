@@ -1,9 +1,13 @@
 export const OFFICIAL_SCORING_REFERENCE = Object.freeze({
-  capturedAt: "2026-07-15",
-  bundle: "shareReport-B_FOiUEI.js",
-  bundleSha256: "02593b4301418722cbd19200822a87a05f041314504f07f0e37aebab415267e8",
-  probeConstantsBundle: "probe-constants-YXB5_aNC.js",
-  probeConstantsSha256: "ec057d221fa24d106fb64ccbc5914ae04fedb1b6f7f602fe15833768bbb41bcf",
+  capturedAt: "2026-07-22",
+  bundle: "shareReport-vS9UoxUO.js",
+  bundleSha256: "32e3db32aa67543574ce9880093454a198d5f37359b91707d95ea41195696f8d",
+  probeConstantsBundle: "probe-constants-DpbHYFO2.js",
+  probeConstantsSha256: "d6f6bf9fa215d3de2c14d74b817f48ec2ac28cf124b07bef241643ea3e3bcfcd",
+  reasoningBundle: "reasoningCheck-JktxwfVY.js",
+  reasoningBundleSha256: "feef731234811199f4a7535d250e02994a77f084f803b5bbc95d2d49b15b9205",
+  algorithmRegistryBundle: "detection-algorithm-registry-B4hNxm78.js",
+  algorithmRegistryBundleSha256: "26788c314788bee39fd5c0ad1859a9d162771996466a67a6c1bb733cf0c08d67",
 });
 
 export const OFFICIAL_CLAUDE_PROBE_METADATA_USER_ID =
@@ -319,21 +323,154 @@ export function officialGptModelMismatch(algorithmModel, reportedModel) {
   return classified ? classified !== expected : true;
 }
 
-export function scoreGptCompatibility({ algorithmModel, reportedModel, quizStatus, protocolStatus, responseStructureStatus }) {
+function usageRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function usageInteger(value) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : null;
+}
+
+function nestedUsageValue(source, parent, child) {
+  return usageRecord(source?.[parent])?.[child];
+}
+
+function firstUsageInteger(sources, select) {
+  for (const source of sources) {
+    const record = usageRecord(source);
+    if (!record) continue;
+    const value = usageInteger(select(record));
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+export function normalizeOpenAiTokenUsage(...values) {
+  const sources = values.length === 1 && Array.isArray(values[0]) ? values[0] : values;
+  const rawInputTokens = firstUsageInteger(sources, (source) =>
+    source.prompt_tokens ?? source.input_tokens ?? source.promptTokenCount);
+  const outputTokens = firstUsageInteger(sources, (source) =>
+    source.completion_tokens ?? source.output_tokens ?? source.candidatesTokenCount);
+  const reportedTotalTokens = firstUsageInteger(sources, (source) =>
+    source.total_tokens ?? source.totalTokenCount);
+  const inclusiveCacheRead = firstUsageInteger(sources, (source) =>
+    source.cached_tokens ??
+    nestedUsageValue(source, "prompt_tokens_details", "cached_tokens") ??
+    nestedUsageValue(source, "input_tokens_details", "cached_tokens") ??
+    source.cachedContentTokenCount);
+  const additiveCacheRead = inclusiveCacheRead === null
+    ? firstUsageInteger(sources, (source) => source.cache_read_input_tokens)
+    : null;
+  const inclusiveCacheWrite = firstUsageInteger(sources, (source) =>
+    nestedUsageValue(source, "prompt_tokens_details", "cache_write_tokens") ??
+    nestedUsageValue(source, "input_tokens_details", "cache_write_tokens") ??
+    source.cache_write_tokens);
+  const additiveCacheWrite = inclusiveCacheWrite === null
+    ? firstUsageInteger(sources, (source) =>
+        source.cache_creation_input_tokens ??
+        source.cache_creation_tokens ??
+        nestedUsageValue(source, "prompt_tokens_details", "cache_creation_input_tokens") ??
+        nestedUsageValue(source, "prompt_tokens_details", "cache_creation_tokens") ??
+        nestedUsageValue(source, "input_tokens_details", "cache_creation_input_tokens") ??
+        nestedUsageValue(source, "input_tokens_details", "cache_creation_tokens"))
+    : null;
+  const rawInput = rawInputTokens ?? 0;
+  const boundedCacheRead = Math.min(rawInput, inclusiveCacheRead ?? 0);
+  const inputAfterCacheRead = rawInput - boundedCacheRead;
+  const boundedCacheWrite = inclusiveCacheWrite !== null && inclusiveCacheWrite <= inputAfterCacheRead
+    ? inclusiveCacheWrite
+    : 0;
+  const cacheReadTokens = inclusiveCacheRead === null ? additiveCacheRead ?? 0 : boundedCacheRead;
+  const cacheWriteTokens = inclusiveCacheWrite ?? additiveCacheWrite ?? 0;
+
+  return {
+    rawInputTokens,
+    inputTokens: rawInputTokens === null ? null : inputAfterCacheRead - boundedCacheWrite,
+    outputTokens,
+    totalTokens: reportedTotalTokens ?? (
+      rawInputTokens !== null && outputTokens !== null ? rawInputTokens + outputTokens : null
+    ),
+    cacheReadTokens,
+    cacheWriteTokens,
+    inclusiveCacheReadTokens: boundedCacheRead,
+    inclusiveCacheWriteTokens: boundedCacheWrite,
+    additiveCacheReadTokens: additiveCacheRead ?? 0,
+    additiveCacheWriteTokens: additiveCacheWrite ?? 0,
+  };
+}
+
+const GPT56_TOKEN_THRESHOLDS = Object.freeze({
+  input: 2000,
+  output: 2000,
+  cacheRead: 1000,
+  cacheWrite: 1000,
+});
+
+function gpt56TokenCategoryPenalty(value, threshold) {
+  const normalized = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+  const excess = normalized - threshold;
+  return excess <= 0 ? 0 : Math.min(6, Math.ceil(excess / 500) * 3);
+}
+
+export function gpt56TokenPenalty(algorithmModel, tokenUsage = {}) {
   const expected = normalizeGptAlgorithmModel(algorithmModel);
-  if (!expected) return { supported: false, score: null, variantStatus: "unsupported", mismatch: null };
+  const applicable = expected === "gpt-5.6-sol" || expected === "gpt-5.6-terra";
+  const breakdown = {
+    input: applicable ? gpt56TokenCategoryPenalty(tokenUsage.inputTokens, GPT56_TOKEN_THRESHOLDS.input) : 0,
+    output: applicable ? gpt56TokenCategoryPenalty(tokenUsage.outputTokens, GPT56_TOKEN_THRESHOLDS.output) : 0,
+    cacheRead: applicable ? gpt56TokenCategoryPenalty(tokenUsage.cacheReadTokens, GPT56_TOKEN_THRESHOLDS.cacheRead) : 0,
+    cacheWrite: applicable ? gpt56TokenCategoryPenalty(tokenUsage.cacheWriteTokens, GPT56_TOKEN_THRESHOLDS.cacheWrite) : 0,
+  };
+  return {
+    applicable,
+    breakdown,
+    total: Object.values(breakdown).reduce((sum, value) => sum + value, 0),
+  };
+}
+
+export function scoreGptCompatibility({
+  algorithmModel,
+  reportedModel,
+  quizStatus,
+  protocolStatus,
+  responseStructureStatus,
+  tokenUsage = {},
+}) {
+  const expected = normalizeGptAlgorithmModel(algorithmModel);
+  if (!expected) {
+    return {
+      supported: false,
+      score: null,
+      baseScore: null,
+      variantStatus: "unsupported",
+      mismatch: null,
+      tokenPenalty: gpt56TokenPenalty(null),
+    };
+  }
   const mismatch = officialGptModelMismatch(expected, reportedModel);
   const variantStatus = mismatch ? "fail" : "pass";
+  let baseScore;
   if (variantStatus === "pass" && quizStatus === "pass") {
-    return { supported: true, score: 100, variantStatus, mismatch };
+    baseScore = 100;
+  } else {
+    baseScore = statusWeight(quizStatus, 60) +
+      statusWeight(variantStatus, 20) +
+      statusWeight(protocolStatus, 8) +
+      statusWeight(responseStructureStatus, 12);
+    if (quizStatus === "fail") baseScore = Math.min(baseScore, 59);
+    else if (variantStatus !== "pass") baseScore = Math.min(baseScore, 64);
   }
-  let score = statusWeight(quizStatus, 60) +
-    statusWeight(variantStatus, 20) +
-    statusWeight(protocolStatus, 8) +
-    statusWeight(responseStructureStatus, 12);
-  if (quizStatus === "fail") score = Math.min(score, 59);
-  else if (variantStatus !== "pass") score = Math.min(score, 64);
-  return { supported: true, score: clampScore(score), variantStatus, mismatch };
+  const tokenPenalty = gpt56TokenPenalty(expected, tokenUsage);
+  return {
+    supported: true,
+    score: clampScore(baseScore - tokenPenalty.total),
+    baseScore: clampScore(baseScore),
+    variantStatus,
+    mismatch,
+    tokenPenalty,
+  };
 }
 
 export function scoreGeminiCompatibility({

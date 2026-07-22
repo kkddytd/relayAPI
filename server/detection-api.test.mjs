@@ -44,6 +44,22 @@ const GPT_KNOWLEDGE_ANSWERS = [
   ["Ras Isa oil terminal", "74 people"],
   ["official total death toll of the Gaza war", "52,243"],
   ["center of Sumy", "At least 35 people"],
+  ["Which country adopted the euro", "Bulgaria"],
+  ["Which currency did Bulgaria adopt", "Euro"],
+  ["Which currency did Bulgaria replace", "Bulgarian lev"],
+  ["Bulgaria became which numbered member", "21st"],
+  ["officially became the capital of Equatorial Guinea", "Ciudad de la Paz"],
+  ["Ciudad de la Paz became the capital of which country", "Equatorial Guinea"],
+  ["Which city did Ciudad de la Paz replace", "Malabo"],
+  ["Which automaker surpassed Tesla", "BYD"],
+  ["Which automaker did BYD overtake", "Tesla"],
+  ["Which company became the world's top-selling electric-vehicle automaker", "BYD"],
+  ["Who was sworn in as President of Switzerland", "Guy Parmelin"],
+  ["Guy Parmelin became president of which country", "Switzerland"],
+  ["Who did Guy Parmelin succeed", "Karin Keller-Sutter"],
+  ["Which country became the first member state to withdraw", "United States"],
+  ["Which international organization did the United States", "World Health Organization"],
+  ["On what date did the United States withdrawal", "January 22, 2026"],
 ];
 
 function passingKnowledge(body) {
@@ -279,6 +295,7 @@ function dependencies(probe) {
     seedSecret: "unit-test-seed",
     probe,
     cacheRoundDelayMs: 0,
+    phaseDelayMs: 0,
     getLiveKnowledgeSnapshot: async () => {
       throw new Error("not_used");
     },
@@ -519,6 +536,17 @@ describe("detection endpoint resolution", () => {
     });
   });
 
+  it("matches the browser protocol for cross-provider custom model names", () => {
+    expect(resolveDetectionEndpoint("https://relay.example/v1", "claude-custom-route", "auto", "gpt-5.6-sol")).toEqual({
+      protocol: "openai-chat",
+      endpoint: "https://relay.example/v1/chat/completions",
+    });
+    expect(resolveDetectionEndpoint("https://relay.example/v1", "gpt-custom-route", "auto", "claude-opus-4-8")).toEqual({
+      protocol: "anthropic",
+      endpoint: "https://relay.example/v1/messages",
+    });
+  });
+
   it("does not duplicate a configured bare /v1 for OpenAI or Anthropic endpoints", () => {
     expect(resolveDetectionEndpoint("https://relay.example/v1", "gpt-5.5", "openai-chat")).toEqual({
       protocol: "openai-chat",
@@ -538,6 +566,44 @@ describe("detection endpoint resolution", () => {
     )).toEqual({
       protocol: "google-generative",
       endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent",
+    });
+  });
+
+  it("builds Vertex Anthropic routes from publisher bases and complete model routes", () => {
+    const publisherBase = "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/anthropic";
+    expect(resolveDetectionEndpoint(publisherBase, "vendor-gemini-alias", "google-generative")).toEqual({
+      protocol: "google-generative",
+      endpoint: "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/google/models/vendor-gemini-alias:generateContent",
+    });
+    expect(resolveDetectionEndpoint(publisherBase, "claude-opus-4-8", "anthropic")).toEqual({
+      protocol: "anthropic",
+      endpoint: `${publisherBase}/models/claude-opus-4-8:rawPredict`,
+    });
+    expect(resolveDetectionEndpoint(
+      `${publisherBase}/models/old-model:streamRawPredict?alt=sse`,
+      "claude-opus-4-8",
+      "auto",
+    )).toEqual({
+      protocol: "anthropic",
+      endpoint: `${publisherBase}/models/claude-opus-4-8:streamRawPredict?alt=sse`,
+    });
+    expect(resolveDetectionEndpoint(
+      "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1",
+      "vendor-claude-alias",
+      "auto",
+      "claude-opus-4-8",
+    )).toEqual({
+      protocol: "anthropic",
+      endpoint: "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/anthropic/models/vendor-claude-alias:rawPredict",
+    });
+    expect(resolveDetectionEndpoint(
+      "https://generativelanguage.googleapis.com/v1beta",
+      "vendor-ai-studio-model",
+      "auto",
+      "claude-opus-4-8",
+    )).toEqual({
+      protocol: "google-generative",
+      endpoint: "https://generativelanguage.googleapis.com/v1beta/models/vendor-ai-studio-model:generateContent",
     });
   });
 });
@@ -603,6 +669,37 @@ describe("detection model profiles", () => {
 });
 
 describe("model detection reports", () => {
+  it("preserves an explicitly supplied Google Bearer credential", async () => {
+    const requests = [];
+    await runModelDetection(
+      detectionInput({
+        upstreamApiKey: "Bearer google-access-token",
+        model: "vendor-gemini-route",
+        profileModel: "gemini-3.1-pro-preview",
+        protocol: "google-generative",
+      }),
+      dependencies(async (payload) => {
+        requests.push(payload);
+        return {
+          status: 200,
+          latencyMs: 10,
+          usage: { promptTokenCount: 5, candidatesTokenCount: 1, totalTokenCount: 6 },
+          bodyText: JSON.stringify({
+            modelVersion: payload.body.model,
+            candidates: [{ content: { parts: [{ text: "OK" }] }, finishReason: "STOP" }],
+            usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 1, totalTokenCount: 6 },
+          }),
+          finalUpstreamUrl: payload.endpoint,
+          responseHeaders: { "content-type": "application/json" },
+        };
+      }),
+    );
+
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.every((request) => request.headers.authorization === "Bearer google-access-token")).toBe(true);
+    expect(requests.every((request) => request.headers["x-goog-api-key"] === undefined)).toBe(true);
+  });
+
   it("runs the current GPT 5.6 Sol public quiz and keeps plain GPT 5.6 quality-only", async () => {
     const requests = [];
     const sol = await runModelDetection(
@@ -637,6 +734,59 @@ describe("model detection reports", () => {
       "capability_score", "reasoning", "coding", "instruction", "chinese", "memory",
     ]));
     expect(generic.verdict).toMatchObject({ value: "unverifiable", evidence_level: "insufficient" });
+  });
+
+  it("uses normalized OpenAI cache usage for the GPT 5.6 token penalty", async () => {
+    const report = await runModelDetection(
+      detectionInput({ model: "gpt-5.6-sol", protocol: "openai-chat" }),
+      dependencies(async (payload) => {
+        const relay = openaiRelay(payload);
+        const body = JSON.parse(relay.bodyText);
+        body.usage = {
+          prompt_tokens: 3300,
+          completion_tokens: 2100,
+          total_tokens: 5400,
+          prompt_tokens_details: { cached_tokens: 1200, cache_write_tokens: 300 },
+        };
+        return {
+          ...relay,
+          usage: body.usage,
+          cacheReadInputTokens: 1200,
+          cacheCreationInputTokens: 300,
+          bodyText: JSON.stringify(body),
+        };
+      }),
+    );
+
+    expect(report.scores).toMatchObject({ primary: 94, official_compatibility: 94, behavior: 94 });
+    expect(report.metrics).toMatchObject({ input_tokens: 1800, output_tokens: 2100 });
+    expect(report.checks.find((item) => item.id === "token_usage")).toMatchObject({
+      status: "warning",
+      evidence: {
+        penalty: {
+          breakdown: { input: 0, output: 3, cacheRead: 3, cacheWrite: 0 },
+          total: 6,
+        },
+      },
+    });
+  });
+
+  it("rejects GPT quiz answers that contain an abstention before the expected value", async () => {
+    const report = await runModelDetection(
+      detectionInput({ model: "gpt-5.6-sol", protocol: "openai-chat", questionMode: "stable" }),
+      dependencies(async (payload) => {
+        const relay = openaiRelay(payload);
+        const body = JSON.parse(relay.bodyText);
+        body.choices[0].message.content = passingGptKnowledge(payload.body)
+          .split("\n")
+          .map((line) => line.replace("|", "|I don’t know, maybe "))
+          .join("\n");
+        return { ...relay, bodyText: JSON.stringify(body) };
+      }),
+    );
+
+    expect(report.checks.find((item) => item.id === "knowledge")).toMatchObject({ status: "fail" });
+    expect(report.scores.official_compatibility).toBeLessThan(60);
   });
 
   it("routes every quality-only GPT preset through the full cutoff-independent capability suite", async () => {
@@ -754,10 +904,22 @@ describe("model detection reports", () => {
   });
 
   it("recognizes the current OpenAI Responses protocol fields for dedicated GPT scoring", async () => {
+    const requests = [];
     const report = await runModelDetection(
       detectionInput({ model: "gpt-5.5", protocol: "openai-responses" }),
-      dependencies(async (payload) => openaiResponsesRelay(payload)),
+      dependencies(async (payload) => {
+        requests.push(payload);
+        return openaiResponsesRelay(payload);
+      }),
     );
+    expect(requests).toHaveLength(1);
+    expect(requests[0].body).toMatchObject({
+      model: "gpt-5.5",
+      input: [{ role: "user", content: expect.any(String) }],
+      max_output_tokens: 10240,
+      reasoning: { effort: "low" },
+      store: false,
+    });
     expect(report.scores).toMatchObject({ primary: 100, quality: 100, official_compatibility: 100, behavior: 100 });
     expect(report.checks.find((item) => item.id === "protocol")).toMatchObject({ status: "pass" });
     expect(report.checks.find((item) => item.id === "response_structure")).toMatchObject({ status: "pass" });
@@ -1432,7 +1594,7 @@ describe("model detection reports", () => {
       status: "failed",
       completed_rounds: 0,
       logical_rounds: 5,
-      request_attempts: 1,
+      request_attempts: 2,
       request_profiles_used: ["custom"],
       rounds: [expect.objectContaining({ status: 429, parse_ok: false })],
     });
@@ -1568,6 +1730,54 @@ describe("model detection reports", () => {
     });
   });
 
+  it("marks a complete cache run without any token fields as unmetered", async () => {
+    const report = await runModelDetection(
+      detectionInput({
+        model: "claude-opus-4-8",
+        checks: { cache: true, liveKnowledge: false },
+      }),
+      dependencies(async (payload) => {
+        const relay = anthropicRelay(payload);
+        if (!payload.stage.startsWith("cachecheck-r")) return relay;
+        const body = JSON.parse(relay.bodyText);
+        delete body.usage;
+        return {
+          ...relay,
+          usage: {},
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          cacheEvidenceFields: [],
+          bodyText: JSON.stringify(body),
+        };
+      }),
+    );
+
+    expect(report.cache).toMatchObject({
+      status: "unobserved",
+      metering_observed: false,
+      metering_evidence_fields: [],
+      cache_evidence_observed: false,
+      compatibility_score: null,
+      measured_weighted_tokens: null,
+      overall_multiplier: null,
+      comparison_hit_rate: null,
+      comparison_assumption: null,
+      total_cache_read_tokens: null,
+      total_cache_write_tokens: null,
+    });
+    expect(report.cache.rounds).toHaveLength(5);
+    expect(report.cache.rounds.every((round) =>
+      round.metering_observed === false &&
+      round.input_tokens === 0 &&
+      round.output_tokens === 0 &&
+      round.cache_read_tokens === 0 &&
+      round.cache_write_tokens === 0 &&
+      round.weighted_tokens === null &&
+      round.multiplier === null &&
+      round.assessment === null
+    )).toBe(true);
+  });
+
   it("keeps the four planned warm rounds as the hit-percentage denominator for incomplete runs", async () => {
     const report = await runModelDetection(
       detectionInput({
@@ -1598,7 +1808,7 @@ describe("model detection reports", () => {
       status: "incomplete",
       completed_rounds: 2,
       logical_rounds: 5,
-      request_attempts: 3,
+      request_attempts: 4,
       observed_warm_rounds: 1,
       required_warm_rounds: 4,
       warm_rounds_with_hit_percent: 25,
@@ -1656,6 +1866,125 @@ describe("model detection reports", () => {
       required_warm_rounds: 4,
     });
     expect(report.cache.rounds).toHaveLength(5);
+  });
+
+  it("retries one successful HTTP response with an invalid cache payload shape", async () => {
+    const attempts = new Map();
+    const report = await runModelDetection(
+      detectionInput({
+        model: "claude-opus-4-8",
+        protocol: "anthropic",
+        checks: { cache: true, liveKnowledge: false },
+      }),
+      dependencies(async (payload) => {
+        if (!payload.stage.startsWith("cachecheck-r")) return anthropicRelay(payload);
+        const attempt = attempts.get(payload.stage) ?? 0;
+        attempts.set(payload.stage, attempt + 1);
+        if (payload.stage === "cachecheck-r1" && attempt === 0) {
+          return {
+            ...anthropicRelay(payload),
+            usage: {},
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheEvidenceFields: [],
+            bodyText: "{}",
+          };
+        }
+        const round = Number(payload.stage.slice(-1));
+        return {
+          ...anthropicRelay(payload),
+          usage: { input_tokens: 10, output_tokens: 5 },
+          cacheCreationInputTokens: round === 0 ? 1000 : 0,
+          cacheReadInputTokens: round === 0 ? 0 : 1000,
+          cacheEvidenceFields: ["cache_creation_input_tokens", "cache_read_input_tokens"],
+        };
+      }),
+    );
+
+    expect(attempts.get("cachecheck-r1")).toBe(2);
+    expect(report.cache).toMatchObject({
+      status: "confirmed",
+      completed_rounds: 5,
+      request_attempts: 6,
+    });
+  });
+
+  it("keeps the upstream reason when a 200 cache error envelope persists", async () => {
+    const report = await runModelDetection(
+      detectionInput({
+        model: "claude-opus-4-8",
+        protocol: "anthropic",
+        checks: { cache: true, liveKnowledge: false },
+      }),
+      dependencies(async (payload) => {
+        if (!payload.stage.startsWith("cachecheck-r")) return anthropicRelay(payload);
+        return {
+          ...anthropicRelay(payload),
+          usage: {},
+          bodyText: JSON.stringify({
+            type: "error",
+            error: { type: "overloaded_error", message: "cache channel unavailable" },
+          }),
+        };
+      }),
+    );
+
+    expect(report.cache).toMatchObject({
+      status: "failed",
+      completed_rounds: 0,
+      request_attempts: 2,
+      failure_detail: "cache channel unavailable",
+    });
+  });
+
+  it("classifies a persistent non-JSON cache response", async () => {
+    const report = await runModelDetection(
+      detectionInput({
+        model: "claude-opus-4-8",
+        protocol: "anthropic",
+        checks: { cache: true, liveKnowledge: false },
+      }),
+      dependencies(async (payload) => {
+        if (!payload.stage.startsWith("cachecheck-r")) return anthropicRelay(payload);
+        return {
+          ...anthropicRelay(payload),
+          usage: {},
+          bodyText: "not-json",
+        };
+      }),
+    );
+
+    expect(report.cache).toMatchObject({
+      status: "failed",
+      completed_rounds: 0,
+      request_attempts: 2,
+      failure_detail: "invalid_json_response",
+    });
+  });
+
+  it("classifies a persistent cache protocol-shape mismatch", async () => {
+    const report = await runModelDetection(
+      detectionInput({
+        model: "claude-opus-4-8",
+        protocol: "anthropic",
+        checks: { cache: true, liveKnowledge: false },
+      }),
+      dependencies(async (payload) => {
+        if (!payload.stage.startsWith("cachecheck-r")) return anthropicRelay(payload);
+        return {
+          ...anthropicRelay(payload),
+          usage: {},
+          bodyText: JSON.stringify({ ok: true }),
+        };
+      }),
+    );
+
+    expect(report.cache).toMatchObject({
+      status: "failed",
+      completed_rounds: 0,
+      request_attempts: 2,
+      failure_detail: "invalid_protocol_response",
+    });
   });
 
   it("runs real Fable cache observations without inventing a comparable Fable baseline", async () => {
@@ -1840,6 +2169,162 @@ describe("model detection reports", () => {
     expect(report.cache.runs.map((run) => run.status)).toEqual(["confirmed", "unobserved"]);
   });
 
+  it("suppresses aggregate token metrics when a complete group returns no metering fields", async () => {
+    const baseline = [
+      { input: 2, output: 14, cache_creation: 5822, cache_read: 0 },
+      { input: 2, output: 14, cache_creation: 45, cache_read: 5822 },
+      { input: 2, output: 14, cache_creation: 45, cache_read: 5867 },
+      { input: 2, output: 14, cache_creation: 45, cache_read: 5912 },
+      { input: 2, output: 14, cache_creation: 45, cache_read: 5957 },
+    ];
+    let cacheRequest = 0;
+    const report = await runModelDetection(
+      detectionInput({
+        model: "claude-opus-4-8",
+        cacheRuns: 2,
+        checks: { cache: true, liveKnowledge: false },
+      }),
+      dependencies(async (payload) => {
+        if (!payload.stage.startsWith("cachecheck-r")) return anthropicRelay(payload);
+        const runIndex = Math.floor(cacheRequest / 5);
+        const roundIndex = cacheRequest % 5;
+        cacheRequest += 1;
+        const relay = anthropicRelay(payload);
+        if (runIndex === 1) {
+          const body = JSON.parse(relay.bodyText);
+          delete body.usage;
+          return {
+            ...relay,
+            usage: {},
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            cacheEvidenceFields: [],
+            bodyText: JSON.stringify(body),
+          };
+        }
+        const reference = baseline[roundIndex];
+        return {
+          ...relay,
+          usage: { input_tokens: reference.input, output_tokens: reference.output },
+          cacheCreationInputTokens: reference.cache_creation,
+          cacheReadInputTokens: reference.cache_read,
+          cacheEvidenceFields: ["cache_creation_input_tokens", "cache_read_input_tokens"],
+        };
+      }),
+    );
+
+    expect(report.cache).toMatchObject({
+      requested_runs: 2,
+      completed_runs: 2,
+      status: "unconfirmed",
+      metering_observed: true,
+      metering_complete: false,
+      compatibility_score: null,
+      measured_weighted_tokens: null,
+      overall_multiplier: null,
+      comparison_hit_rate: null,
+      total_cache_read_tokens: null,
+      total_cache_write_tokens: null,
+    });
+    expect(report.cache.runs.map((run) => run.metering_observed)).toEqual([true, false]);
+  });
+
+  it("suppresses a single cache run's aggregate measurements when one round omits usage", async () => {
+    let cacheRound = 0;
+    const report = await runModelDetection(
+      detectionInput({
+        model: "claude-opus-4-8",
+        checks: { cache: true, liveKnowledge: false },
+      }),
+      dependencies(async (payload) => {
+        if (!payload.stage.startsWith("cachecheck-r")) return anthropicRelay(payload);
+        const relay = anthropicRelay(payload);
+        const currentRound = cacheRound;
+        cacheRound += 1;
+        if (currentRound !== 2) {
+          return {
+            ...relay,
+            usage: { input_tokens: 2, output_tokens: 14 },
+            cacheCreationInputTokens: currentRound === 0 ? 5822 : 45,
+            cacheReadInputTokens: currentRound === 0 ? 0 : 5822 + (currentRound - 1) * 45,
+            cacheEvidenceFields: ["cache_creation_input_tokens", "cache_read_input_tokens"],
+          };
+        }
+        const body = JSON.parse(relay.bodyText);
+        delete body.usage;
+        return {
+          ...relay,
+          usage: {},
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens: 0,
+          cacheEvidenceFields: [],
+          bodyText: JSON.stringify(body),
+        };
+      }),
+    );
+
+    expect(report.cache).toMatchObject({
+      completed_rounds: 5,
+      metering_observed: true,
+      metering_complete: false,
+      compatibility_score: null,
+      measured_weighted_tokens: null,
+      overall_multiplier: null,
+      comparison_hit_rate: null,
+      total_cache_read_tokens: null,
+      total_cache_write_tokens: null,
+    });
+  });
+
+  it("does not treat a partial usage object as complete token metering", async () => {
+    let cacheRound = 0;
+    const report = await runModelDetection(
+      detectionInput({
+        model: "claude-opus-4-8",
+        checks: { cache: true, liveKnowledge: false },
+      }),
+      dependencies(async (payload) => {
+        if (!payload.stage.startsWith("cachecheck-r")) return anthropicRelay(payload);
+        const relay = anthropicRelay(payload);
+        const currentRound = cacheRound;
+        cacheRound += 1;
+        if (currentRound !== 2) return relay;
+        const body = JSON.parse(relay.bodyText);
+        body.usage = { input_tokens: 2 };
+        return {
+          ...relay,
+          usage: { input_tokens: 2 },
+          cacheCreationInputTokens: 45,
+          cacheReadInputTokens: 5867,
+          cacheEvidenceFields: ["cache_creation_input_tokens", "cache_read_input_tokens"],
+          bodyText: JSON.stringify(body),
+        };
+      }),
+    );
+
+    expect(report.cache).toMatchObject({
+      metering_observed: true,
+      metering_complete: false,
+      comparison_assumption: null,
+      compatibility_score: null,
+      measured_weighted_tokens: null,
+      overall_multiplier: null,
+    });
+    expect(report.cache.rounds[2]).toMatchObject({
+      metering_observed: true,
+      metering_complete: false,
+      input_tokens: 2,
+      output_tokens: 0,
+      weighted_tokens: null,
+      multiplier: null,
+      assessment: null,
+      input_delta_percent: null,
+      output_delta_percent: null,
+      cache_write_delta_percent: null,
+      cache_read_delta_percent: null,
+    });
+  });
+
   it("stops repeated cache validation after an incomplete sequence and suppresses aggregate metrics", async () => {
     let cacheRequest = 0;
     const report = await runModelDetection(
@@ -1851,7 +2336,7 @@ describe("model detection reports", () => {
       dependencies(async (payload) => {
         if (!payload.stage.startsWith("cachecheck-r")) return anthropicRelay(payload);
         cacheRequest += 1;
-        if (cacheRequest === 6) {
+        if (cacheRequest === 6 || cacheRequest === 7) {
           return {
             ...anthropicRelay(payload),
             status: 429,
@@ -1869,7 +2354,7 @@ describe("model detection reports", () => {
       }),
     );
 
-    expect(cacheRequest).toBe(6);
+    expect(cacheRequest).toBe(7);
     expect(report.cache).toMatchObject({
       requested_runs: 3,
       completed_runs: 1,
@@ -1878,7 +2363,7 @@ describe("model detection reports", () => {
       compatibility_score: null,
       average_hit_rate: null,
       overall_multiplier: null,
-      request_attempts: 6,
+      request_attempts: 7,
     });
     expect(report.cache.runs).toHaveLength(2);
     expect(report.cache.runs.map((run) => run.status)).toEqual(["confirmed", "failed"]);
@@ -2019,6 +2504,10 @@ describe("OpenAPI document", () => {
     expect(document.components.schemas.CacheReport.properties.request_profiles_used.items.enum).toEqual(["custom", "claude_code"]);
     expect(document.components.schemas.CacheReport.properties.required_warm_rounds).toMatchObject({ minimum: 0, maximum: 4 });
     expect(document.components.schemas.CacheReport.properties.observed_warm_rounds).toMatchObject({ minimum: 0, maximum: 4 });
+    expect(document.components.schemas.CacheReport.properties.metering_complete.type).toEqual("boolean");
+    expect(document.components.schemas.CacheRound.required).toContain("metering_complete");
+    expect(document.components.schemas.CacheRound.properties.metering_complete.type).toEqual("boolean");
+    expect(document.components.schemas.CacheRound.properties.weighted_tokens.type).toEqual(["number", "null"]);
     expect(document.components.schemas.DetectionRequest.properties.checks.properties.cache_runs).toMatchObject({ minimum: 1, maximum: 3, default: 1 });
     expect(document.components.schemas.CacheReport.properties.aggregation.enum).toEqual(["single", "median"]);
     expect(document.components.schemas.CacheReport.properties.runs.items.$ref).toBe("#/components/schemas/CacheReport");

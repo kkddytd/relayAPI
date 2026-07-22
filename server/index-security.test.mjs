@@ -6,6 +6,8 @@ import path from "node:path";
 import {
   createClientDisconnectController,
   createConcurrencyGate,
+  detectionApiAuthorization,
+  detectionQueueKey,
   extractAnthropicContentSignatures,
   fetchLiveKnowledgeSnapshot,
   internalProbeUnavailableResult,
@@ -32,10 +34,30 @@ import {
   signWebSessionId,
   verifyWebSessionToken,
   waitForPromiseWithSignal,
+  upstreamQueueKey,
+  webDataAuthorization,
 } from "./index.mjs";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("upstream request serialization keys", () => {
+  it("maps Bearer and x-api-key credentials for the same host to one queue", () => {
+    const bearer = upstreamQueueKey("https://relay.example/v1/messages", { authorization: "Bearer sk-same" });
+    const apiKey = upstreamQueueKey("https://relay.example/v1/messages", { "x-api-key": "sk-same" });
+    expect(bearer).toBe(apiKey);
+    expect(bearer).not.toContain("sk-same");
+    expect(upstreamQueueKey("https://other.example/v1/messages", { "x-api-key": "sk-same" })).not.toBe(apiKey);
+    expect(upstreamQueueKey("https://relay.example/v1/messages", { "x-api-key": "sk-other" })).not.toBe(apiKey);
+  });
+
+  it("uses the same host and credential identity for whole API detections", () => {
+    expect(detectionQueueKey("https://relay.example/v1", "Bearer sk-same"))
+      .toBe(detectionQueueKey("https://relay.example/v1/messages", "sk-same"));
+    expect(detectionQueueKey("https://relay.example/v1", "x-api-key: sk-same"))
+      .toBe(detectionQueueKey("https://relay.example/v1/messages", "sk-same"));
+  });
 });
 
 describe("multipart attachment request privacy", () => {
@@ -352,8 +374,66 @@ describe("loopback exemptions", () => {
   it("uses forwarded installation IPs from a loopback reverse proxy", () => {
     expect(installationReportSourceIp(request({ "x-forwarded-for": "198.51.100.30" }))).toBe("198.51.100.30");
     const direct = request({ "x-forwarded-for": "198.51.100.31" });
-    direct.socket.remoteAddress = "203.0.113.40";
-    expect(installationReportSourceIp(direct)).toBe("203.0.113.40");
+    direct.socket.remoteAddress = "8.8.4.4";
+    expect(installationReportSourceIp(direct)).toBe("8.8.4.4");
+  });
+
+  it("uses forwarded installation IPs from a trusted Docker gateway", () => {
+    const proxied = request({ "x-forwarded-for": "198.51.100.32" });
+    proxied.socket.remoteAddress = "172.18.0.1";
+    expect(installationReportSourceIp(proxied)).toBe("198.51.100.32");
+    expect(installationReportSourceIp(proxied, false)).toBe("172.18.0.1");
+  });
+
+  it("ignores installation forwarding headers from a public direct peer", () => {
+    const direct = request({ "x-forwarded-for": "198.51.100.33", "x-real-ip": "198.51.100.34" });
+    direct.socket.remoteAddress = "8.8.8.8";
+    expect(installationReportSourceIp(direct, true)).toBe("8.8.8.8");
+  });
+});
+
+describe("programmatic API authorization", () => {
+  it("does not accept the trusted Web proxy header as a detector credential", () => {
+    const result = detectionApiAuthorization({
+      headers: {
+        host: "relay.example",
+        "x-forwarded-for": "203.0.113.20",
+        "x-kangkang-trusted-web": "kk-public-web-via-loopback",
+      },
+      socket: { remoteAddress: "127.0.0.1" },
+    }, ["det_test_key"]);
+
+    expect(result).toMatchObject({ allowed: false, status: 401, code: "invalid_detector_api_key" });
+  });
+
+  it("accepts a valid detector Bearer credential", () => {
+    const result = detectionApiAuthorization({
+      headers: { authorization: "Bearer det_test_key" },
+      socket: { remoteAddress: "203.0.113.20" },
+    }, ["det_test_key"]);
+
+    expect(result).toMatchObject({ allowed: true, mode: "bearer" });
+  });
+
+  it("keeps a valid Bearer owner scope on loopback Web data routes", () => {
+    const req = {
+      headers: {
+        host: "127.0.0.1:6722",
+        authorization: "Bearer det_test_key",
+      },
+      socket: { remoteAddress: "127.0.0.1" },
+    };
+    expect(webDataAuthorization(req, {}, { configuredKeys: ["det_test_key"] })).toMatchObject({
+      allowed: true,
+      mode: "bearer",
+      ownerScope: expect.stringMatching(/^api:/),
+    });
+    delete req.headers.authorization;
+    expect(webDataAuthorization(req, {}, { configuredKeys: ["det_test_key"] })).toMatchObject({
+      allowed: true,
+      mode: "local",
+      ownerScope: "local",
+    });
   });
 });
 

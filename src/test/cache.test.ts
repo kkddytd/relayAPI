@@ -180,6 +180,45 @@ Reply with exactly one short sentence in plain text. No tool_use, no lists, no m
     expect(report.evidenceSufficient).toBe(false);
   });
 
+  it("requires token metering on every logical round before exposing aggregate measurements", () => {
+    const rounds: CacheRound[] = Array.from({ length: 5 }, (_, index) => ({
+      round: index + 1,
+      latencyMs: 10,
+      inputTokens: index === 0 ? 12 : 0,
+      outputTokens: index === 0 ? 3 : 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      hitRate: null,
+      evidence: false,
+      evidenceFields: [],
+      usageObserved: index === 0,
+    }));
+
+    const report = summarizeCacheRounds(rounds);
+    expect(report.meteringObserved).toBe(true);
+    expect(report.meteringComplete).toBe(false);
+  });
+
+  it("distinguishes partial usage evidence from complete input and output metering", () => {
+    const rounds: CacheRound[] = Array.from({ length: 5 }, (_, index) => ({
+      round: index + 1,
+      latencyMs: 10,
+      inputTokens: 12,
+      outputTokens: index === 2 ? 0 : 3,
+      cacheReadTokens: index > 0 ? 100 : 0,
+      cacheCreationTokens: index === 0 ? 100 : 0,
+      hitRate: index > 0 ? 80 : 0,
+      evidence: true,
+      evidenceFields: ["cache_read_input_tokens"],
+      usageObserved: true,
+      usageComplete: index !== 2,
+    }));
+
+    const report = summarizeCacheRounds(rounds);
+    expect(report.meteringObserved).toBe(true);
+    expect(report.meteringComplete).toBe(false);
+  });
+
   it("keeps Fable observation separate from its Opus 4.8 reference baseline", () => {
     expect(canRunCacheObservation("claude-opus-4-8")).toBe(true);
     expect(canRunCacheObservation("claude-fable-5")).toBe(true);

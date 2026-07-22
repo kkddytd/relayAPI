@@ -20,6 +20,8 @@ export interface CacheRound {
   evidence: boolean;
   evidenceFields?: string[];
   inputTokensIncludeCache?: boolean;
+  usageObserved?: boolean;
+  usageComplete?: boolean;
   baseline?: CacheBaselineRound;
   baselineWeighted?: number;
   measuredWeighted?: number;
@@ -67,6 +69,8 @@ export interface CacheReport {
   /** Diagnostic weighted aggregate for warm rounds only. */
   warmHitRate: number | null;
   evidenceSufficient: boolean;
+  meteringObserved?: boolean;
+  meteringComplete?: boolean;
   baselineMultiplier?: number | null;
   baselineHitRate?: number | null;
   comparisonHitRate?: number | null;
@@ -364,24 +368,28 @@ export function compareCacheBaseline(
       compatibilityScore: null,
       measuredCostIndex,
       baselineCostIndex: null,
-      rounds: rounds.map((round, index) => ({ ...round, measuredWeighted: calculateWeightedCacheCost(measured[index]) })),
+      rounds: rounds.map((round, index) => ({
+        ...round,
+        measuredWeighted: round.usageComplete === false ? undefined : calculateWeightedCacheCost(measured[index]),
+      })),
     };
   }
   const matchedBaseline = rounds.map((_, index) => baseline[Math.min(index, baseline.length - 1)]);
   const comparedRounds = rounds.map((round, index) => {
     const reference = matchedBaseline[index];
-    const measuredWeighted = calculateWeightedCacheCost(measured[index]);
+    const meteringComplete = round.usageComplete !== false;
+    const measuredWeighted = meteringComplete ? calculateWeightedCacheCost(measured[index]) : undefined;
     const baselineWeighted = calculateWeightedCacheCost(reference);
     return {
       ...round,
       baseline: { ...reference },
       measuredWeighted,
       baselineWeighted,
-      multiplier: baselineWeighted > 0 ? Number((measuredWeighted / baselineWeighted).toFixed(3)) : null,
-      inputDeltaPct: percentDelta(round.inputTokens, reference.input),
-      outputDeltaPct: round.outputTokens <= reference.output * 2 ? null : percentDelta(round.outputTokens, reference.output),
-      cacheCreationDeltaPct: percentDelta(round.cacheCreationTokens, reference.cacheCreation),
-      cacheReadDeltaPct: percentDelta(round.cacheReadTokens, reference.cacheRead),
+      multiplier: measuredWeighted !== undefined && baselineWeighted > 0 ? Number((measuredWeighted / baselineWeighted).toFixed(3)) : null,
+      inputDeltaPct: meteringComplete ? percentDelta(round.inputTokens, reference.input) : null,
+      outputDeltaPct: meteringComplete && round.outputTokens > reference.output * 2 ? percentDelta(round.outputTokens, reference.output) : null,
+      cacheCreationDeltaPct: meteringComplete ? percentDelta(round.cacheCreationTokens, reference.cacheCreation) : null,
+      cacheReadDeltaPct: meteringComplete ? percentDelta(round.cacheReadTokens, reference.cacheRead) : null,
     };
   });
   const baselineCostIndex = matchedBaseline.reduce((sum, round) => sum + calculateWeightedCacheCost(round), 0);
@@ -479,6 +487,8 @@ export function summarizeCacheRounds(rounds: CacheRound[], applicable = true): C
       observedWarmRounds: 0,
       requiredWarmRounds: 4,
       warmRoundsWithRead: 0,
+      meteringObserved: false,
+      meteringComplete: false,
     };
   }
 
@@ -493,6 +503,16 @@ export function summarizeCacheRounds(rounds: CacheRound[], applicable = true): C
     (round) => round.evidence || (round.evidenceFields?.length ?? 0) > 0,
   ).length;
   const warmRoundsWithRead = warmRounds.filter((round) => round.cacheReadTokens > 0).length;
+  const roundHasMetering = (round: CacheRound) => round.usageObserved ?? (
+    round.inputTokens > 0 ||
+    round.outputTokens > 0 ||
+    round.cacheReadTokens > 0 ||
+    round.cacheCreationTokens > 0 ||
+    round.evidence ||
+    (round.evidenceFields?.length ?? 0) > 0
+  );
+  const meteringObserved = rounds.some(roundHasMetering);
+  const meteringComplete = rounds.length >= 5 && rounds.every((round) => round.usageComplete ?? roundHasMetering(round));
   // One cache-read field, especially in the first cache-creation request, is
   // not enough to establish repeatable prompt-cache behavior. Confirmation
   // requires provider usage evidence and real reads in all four warm rounds.
@@ -526,6 +546,8 @@ export function summarizeCacheRounds(rounds: CacheRound[], applicable = true): C
     hitRate,
     warmHitRate,
     evidenceSufficient: warmEvidenceSufficient && repeatedWarmReads,
+    meteringObserved,
+    meteringComplete,
     baselineModel: null,
     baselineSource: null,
     baselineAvailable: false,

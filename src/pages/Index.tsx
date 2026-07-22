@@ -19,6 +19,7 @@ import { modelMatchesRequested, resolveEndpoint, type EndpointMode } from "@/lib
 import { detectChannelEvidence, type ChannelEvidence } from "@/lib/channelEvidence";
 import {
   createEvaluationSuite,
+  createEvaluationSeed,
   createGptQuizPrompt,
   createLivenessPrompt,
   gradeEvaluation,
@@ -54,6 +55,7 @@ import {
 } from "@/lib/liveKnowledge";
 import {
   deriveAuthenticityAssessment,
+  hasDedicatedVerifier,
   hasVerifiedOfficialTransport,
   type AuthenticityAssessment,
   type AuthenticityEvidenceLevel,
@@ -80,11 +82,22 @@ import {
   claudeSignaturePenalty,
   classifyClaudeFamily,
   expectedClaudeFamily,
+  normalizeOpenAiTokenUsage,
   officialPassThreshold,
   scoreClaudeCompatibility,
   scoreGeminiCompatibility,
   scoreGptCompatibility,
 } from "../../shared/official-scoring.mjs";
+import {
+  DEFAULT_CACHE_ROUND_DELAY_MS,
+  DEFAULT_CACHE_REQUEST_TIMEOUT_MS,
+  DEFAULT_DETECTION_PHASE_DELAY_MS,
+  retryDelayMs,
+} from "../../shared/request-pacing.mjs";
+import {
+  buildOpenAiChatProbeBody,
+  buildOpenAiResponsesProbeBody,
+} from "../../shared/openai-probe-request.mjs";
 
 interface DetectionResult {
   id: string;
@@ -272,6 +285,7 @@ interface PublicErrorInfo {
   source: "upstream" | "system";
   stage?: ProbeStage;
   statusCode?: number;
+  retryAfterMs?: number;
 }
 
 class UserVisibleError extends Error {
@@ -774,7 +788,7 @@ async function sendProbe(options: {
         ? {
             accept: "application/json",
             "content-type": "application/json",
-            ...(isVertexEndpoint
+            ...(isVertexEndpoint || explicitBearerAuth
               ? { authorization: `Bearer ${normalizedApiKey}` }
               : { "x-goog-api-key": normalizedApiKey }),
           }
@@ -784,7 +798,6 @@ async function sendProbe(options: {
           authorization: `Bearer ${normalizedApiKey}`,
         };
 
-  const isReasoning = /^(gpt-5|o[1-9](?:$|[-.]))/i.test(options.model.trim());
   const cacheRunMarker = `[cache_test_run: ${options.cacheRunId || "local"}]`;
   const cacheSystem = options.cacheControl
     ? (Array.isArray(cacheTemplate.system)
@@ -869,13 +882,11 @@ async function sendProbe(options: {
             size: "1024x1024",
           }
         : mode === "openai-responses"
-        ? {
+        ? buildOpenAiResponsesProbeBody({
             model: options.model,
-            input: openAIMessages,
-            max_output_tokens: OPENAI_PROBE_MAX_OUTPUT_TOKENS,
-            ...(isReasoning ? { reasoning: { effort: "low" } } : {}),
-            store: false,
-          }
+            messages: openAIMessages,
+            maxOutputTokens: OPENAI_PROBE_MAX_OUTPUT_TOKENS,
+          })
         : mode === "google-generative"
           ? {
               contents: openAIMessages.map((message) => ({
@@ -890,14 +901,11 @@ async function sendProbe(options: {
                 ...(options.geminiGenerationConfigOverrides ?? {}),
               },
             }
-        : {
+        : buildOpenAiChatProbeBody({
             model: options.model,
             messages: openAIMessages,
-            max_completion_tokens: OPENAI_PROBE_MAX_OUTPUT_TOKENS,
-            stream: true,
-            stream_options: { include_usage: true },
-            ...(!isReasoning ? { temperature: 0 } : {}),
-          };
+            maxOutputTokens: OPENAI_PROBE_MAX_OUTPUT_TOKENS,
+          });
 
   let relayResponse: Response;
   try {
@@ -1068,6 +1076,7 @@ async function sendProbe(options: {
       source: "system",
       stage: options.stage,
       statusCode: relayResponse.status,
+      retryAfterMs: retryDelayMs(relayResponse.status, relayResponse.headers),
     });
   }
 
@@ -1082,6 +1091,7 @@ async function sendProbe(options: {
       source: "upstream",
       stage: options.stage,
       statusCode: upstreamStatus,
+      retryAfterMs: retryDelayMs(upstreamStatus, responseHeaders),
     });
   }
 
@@ -1180,7 +1190,7 @@ async function sendProbe(options: {
       ?? payload?.candidates?.[0]?.usageMetadata
     : null;
   const cacheUsage = extractCacheUsage({ ...(relayUsage as Record<string, unknown>), ...(usage as Record<string, unknown> ?? {}) });
-  const inputTokens =
+  const rawInputTokens =
     usage && typeof usage.input_tokens === "number"
       ? usage.input_tokens
       : usage && typeof usage.prompt_tokens === "number"
@@ -1194,7 +1204,7 @@ async function sendProbe(options: {
             : typeof relayUsage.promptTokenCount === "number"
               ? relayUsage.promptTokenCount
               : null;
-  const outputTokens =
+  const rawOutputTokens =
     usage && typeof usage.output_tokens === "number"
       ? usage.output_tokens
       : usage && typeof usage.completion_tokens === "number"
@@ -1208,12 +1218,31 @@ async function sendProbe(options: {
             : typeof relayUsage.candidatesTokenCount === "number"
               ? relayUsage.candidatesTokenCount
               : null;
-  const totalTokens =
-    usage && typeof usage.total_tokens === "number"
+  const openAiUsage = mode === "openai-chat" || mode === "openai-responses"
+    ? normalizeOpenAiTokenUsage(
+        usage,
+        relayUsage,
+        {
+          cache_read_input_tokens: relayCacheReadInputTokens,
+          cache_creation_input_tokens: relayCacheCreationInputTokens,
+        },
+      )
+    : null;
+  const inputTokens = openAiUsage ? openAiUsage.inputTokens : rawInputTokens;
+  const outputTokens = openAiUsage ? openAiUsage.outputTokens : rawOutputTokens;
+  const totalTokens = openAiUsage
+    ? openAiUsage.totalTokens
+    : usage && typeof usage.total_tokens === "number"
       ? usage.total_tokens
       : inputTokens !== null && outputTokens !== null
         ? inputTokens + outputTokens
         : null;
+  const cacheReadInputTokens = openAiUsage
+    ? openAiUsage.cacheReadTokens
+    : Math.max(relayCacheReadInputTokens, cacheUsage.cacheReadTokens);
+  const cacheCreationInputTokens = openAiUsage
+    ? openAiUsage.cacheWriteTokens
+    : Math.max(relayCacheCreationInputTokens, cacheUsage.cacheCreationTokens);
   const tps = outputTokens && latencyMs > 0 ? Number((outputTokens / (latencyMs / 1000)).toFixed(1)) : 0;
 
   const contentTypes: string[] = [];
@@ -1270,9 +1299,9 @@ async function sendProbe(options: {
     inputTokens,
     outputTokens,
     totalTokens,
-    cacheHit: relayCacheHit || cacheUsage.cacheReadTokens > 0,
-    cacheReadInputTokens: Math.max(relayCacheReadInputTokens, cacheUsage.cacheReadTokens),
-    cacheCreationInputTokens: Math.max(relayCacheCreationInputTokens, cacheUsage.cacheCreationTokens),
+    cacheHit: relayCacheHit || cacheReadInputTokens > 0,
+    cacheReadInputTokens,
+    cacheCreationInputTokens,
     cacheEvidenceFields: [...new Set([...relayCacheEvidenceFields, ...cacheUsage.evidenceFields])],
     signatureDeltaTotalLength,
     signatureDeltaCount,
@@ -2126,9 +2155,11 @@ function parseNumberedAnswers(text: string): Map<number, string> {
 function normalizeProbeAnswer(value: string): string {
   return value
     .normalize("NFKC")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .replace(/^['"`]+|['"`]+$/g, "")
-    .replace(/[.,!?;:()[\]{}'"`·]/g, " ")
+    .replace(/[.,!?;:()[\]{}'"`·‘’]/g, " ")
     .replace(/\s+/g, " ")
     .toLowerCase();
 }
@@ -2543,11 +2574,12 @@ function buildFamilyChecks(
     mediumProtocolHits >= 2 &&
     successfulProbes.every((probe) => probe.parseOk),
   );
+  const structureStatus: CheckStatus = structurePass ? "pass" : medium?.parseOk ? "warning" : "fail";
   const score = scoreGeminiCompatibility({
     mediumStatus: mediumPass ? "pass" : "fail",
     variantStatus: variantPass ? "pass" : "fail",
     protocolStatus: protocolPass ? "pass" : "fail",
-    responseStructureStatus: structurePass ? "pass" : "fail",
+    responseStructureStatus: structureStatus,
     usedFallbackChallenge: Boolean(challenge),
     fallbackTokenCount: challenge?.totalTokens ?? 0,
     fallbackLatencyMs: challenge?.latencyMs ?? 0,
@@ -2558,7 +2590,7 @@ function buildFamilyChecks(
       { name: "Gemini medium thinking", category: "authenticity", status: status(mediumPass), detail: mediumPass ? messages.checkAbilityPass : messages.checkAbilityFail, trace: safeTrace({ response: medium?.responseText ?? "" }) },
       { name: "Gemini model variant", category: "authenticity", status: status(variantPass), detail: variantPass ? messages.checkAbilityPass : messages.checkAbilityFail, trace: safeTrace({ minimal_status: minimal?.upstreamStatus ?? null, minimal_error: minimal?.errorMessage ?? null, challenge_response: challenge?.responseText ?? null }) },
       { name: messages.checkProtocolName, category: "authenticity", status: status(protocolPass), detail: protocolPass ? messages.checkProtocolStable : messages.checkProtocolWeak },
-      { name: messages.checkResponseStructureName, category: "authenticity", status: status(structurePass), detail: structurePass ? messages.checkResponseJsonValid : messages.checkResponseInvalid },
+      { name: messages.checkResponseStructureName, category: "authenticity", status: structureStatus, detail: structurePass ? messages.checkResponseJsonValid : messages.checkResponseInvalid },
     ],
     score,
     capabilityScore: score,
@@ -2621,6 +2653,12 @@ function buildGptQuizChecks(
     quizStatus: knowledgeStatus,
     protocolStatus: preliminaryProtocolStatus,
     responseStructureStatus: structureStatus,
+    tokenUsage: {
+      inputTokens: probe.inputTokens,
+      outputTokens: probe.outputTokens,
+      cacheReadTokens: probe.cacheReadInputTokens,
+      cacheWriteTokens: probe.cacheCreationInputTokens,
+    },
   });
   const officialAssessment = preliminaryAssessment.mismatch === true
     ? scoreGptCompatibility({
@@ -2629,6 +2667,12 @@ function buildGptQuizChecks(
         quizStatus: knowledgeStatus,
         protocolStatus: "fail",
         responseStructureStatus: structureStatus,
+        tokenUsage: {
+          inputTokens: probe.inputTokens,
+          outputTokens: probe.outputTokens,
+          cacheReadTokens: probe.cacheReadInputTokens,
+          cacheWriteTokens: probe.cacheCreationInputTokens,
+        },
       })
     : preliminaryAssessment;
   const protocolStatus: CheckStatus = officialAssessment.mismatch === true ? "fail" : preliminaryProtocolStatus;
@@ -2665,6 +2709,18 @@ function buildGptQuizChecks(
         status: structureStatus,
         detail: structureStatus === "pass" ? messages.checkResponseJsonValid : messages.checkResponseInvalid,
       },
+      ...(officialAssessment.tokenPenalty?.applicable ? [{
+        name: messages.checkGptTokenName,
+        category: "authenticity" as const,
+        status: officialAssessment.tokenPenalty.total > 0 ? "warning" as const : "pass" as const,
+        detail: officialAssessment.tokenPenalty.total > 0
+          ? messages.checkGptTokenPenalty.replace("{points}", String(officialAssessment.tokenPenalty.total))
+          : messages.checkGptTokenWithinThreshold,
+        trace: safeTrace({
+          thresholds: { input: 2000, output: 2000, cache_read: 1000, cache_write: 1000 },
+          penalty: officialAssessment.tokenPenalty,
+        }),
+      }] : []),
     ],
     score,
     capabilityScore,
@@ -2744,7 +2800,7 @@ async function runClaudeCacheCheckSingle(options: {
           cacheRunId,
           cacheRequestProfile: requestProfile,
           cacheSessionId,
-          timeoutMs: 10_000,
+          timeoutMs: DEFAULT_CACHE_REQUEST_TIMEOUT_MS,
           metadataUserId: options.metadataUserId,
           signal: options.signal,
           messages: options.messages,
@@ -2768,9 +2824,16 @@ async function runClaudeCacheCheckSingle(options: {
             break;
           } catch (error) {
             const statusCode = error instanceof UserVisibleError ? error.info.statusCode : null;
-            const terminalClientError = statusCode === 429 ||
-              (typeof statusCode === "number" && statusCode >= 400 && statusCode < 500);
+            const retryable = statusCode === 429 || (typeof statusCode === "number" && statusCode >= 500 && statusCode < 600);
+            const terminalClientError = typeof statusCode === "number" && statusCode >= 400 && statusCode < 500 && statusCode !== 429;
             if (terminalClientError || attempt === 1) throw error;
+            if (attempt === 0) {
+              const waitMs = retryable && error instanceof UserVisibleError && error.info.retryAfterMs
+                ? error.info.retryAfterMs
+                : DEFAULT_CACHE_ROUND_DELAY_MS;
+              await abortableDelay(waitMs, options.signal);
+              continue;
+            }
           }
         }
         if (!probe) throw new Error("cache_probe_missing");
@@ -2791,10 +2854,12 @@ async function runClaudeCacheCheckSingle(options: {
           evidence: probe.cacheEvidenceFields.length > 0,
           evidenceFields: probe.cacheEvidenceFields,
           inputTokensIncludeCache: snapshot.inputTokensIncludeCache,
+          usageObserved: probe.inputTokens !== null || probe.outputTokens !== null || probe.cacheEvidenceFields.length > 0,
+          usageComplete: probe.inputTokens !== null && probe.outputTokens !== null,
         });
         history.push({ role: "user", text: prompt });
         history.push({ role: "assistant", text: probe.responseText || "(empty)" });
-        if (round < 5) await abortableDelay(1200, options.signal);
+        if (round < 5) await abortableDelay(DEFAULT_CACHE_ROUND_DELAY_MS, options.signal);
       }
     } catch (error) {
       if (error && typeof error === "object") {
@@ -2818,9 +2883,20 @@ async function runClaudeCacheCheckSingle(options: {
         ? baseline.rounds
         : null,
     );
+    const summary = summarizeCacheRounds(comparison.rounds, true);
+    const measuredComparison = summary.meteringComplete
+      ? comparison
+      : {
+          ...comparison,
+          baselineMultiplier: null,
+          comparisonHitRate: null,
+          comparisonAssumption: null,
+          compatibilityScore: null,
+          measuredCostIndex: undefined,
+        };
     return annotateReport({
-      ...summarizeCacheRounds(comparison.rounds, true),
-      ...comparison,
+      ...summary,
+      ...measuredComparison,
       requestProfile,
       completedRounds: rounds.length,
       logicalRounds: 5,
@@ -2976,6 +3052,7 @@ async function runClaudeCacheCheck(options: {
     // A failed or partial group is not a stable observation. Stop rather
     // than amplifying an upstream error with more billable requests.
     if (!isComplete(report)) break;
+    if (index < requestedRuns - 1) await abortableDelay(DEFAULT_CACHE_ROUND_DELAY_MS, options.signal);
   }
   const completeReports = reports.filter(isComplete);
   const stripNestedRuns = (report: CacheReport): CacheRunReport => {
@@ -2998,6 +3075,7 @@ async function runClaudeCacheCheck(options: {
       requestedRuns: 1,
       completedRuns: completeReports.length,
       aggregation: "single",
+      meteringComplete: representative.meteringComplete === true,
     };
   }
 
@@ -3026,6 +3104,8 @@ async function runClaudeCacheCheck(options: {
       requestAttempts,
       requestProfilesUsed,
       evidenceFields,
+      meteringObserved: reports.some((report) => report.meteringObserved),
+      meteringComplete: false,
       reason: aggregateReason,
       failureDetail: options.messages.cacheMultiRunIncomplete,
     };
@@ -3043,21 +3123,26 @@ async function runClaudeCacheCheck(options: {
   )
     ? "missing_usage_treated_as_zero" as const
     : null;
+  const meteringComplete = completeReports.every((report) => report.meteringComplete === true);
 
   return {
     ...representative,
     status: aggregateStatus,
-    compatibilityScore: median(completeReports.map((report) => report.compatibilityScore)),
-    baselineMultiplier: median(completeReports.map((report) => report.baselineMultiplier)),
+    compatibilityScore: meteringComplete ? median(completeReports.map((report) => report.compatibilityScore)) : null,
+    baselineMultiplier: meteringComplete ? median(completeReports.map((report) => report.baselineMultiplier)) : null,
     baselineHitRate: median(completeReports.map((report) => report.baselineHitRate)),
-    comparisonHitRate: median(completeReports.map((report) => report.comparisonHitRate)),
-    hitRate: median(completeReports.map((report) => report.hitRate)),
-    warmHitRate: median(completeReports.map((report) => report.warmHitRate)),
-    measuredCostIndex: median(completeReports.map((report) => report.measuredCostIndex)) ?? representative.measuredCostIndex,
+    comparisonHitRate: meteringComplete ? median(completeReports.map((report) => report.comparisonHitRate)) : null,
+    hitRate: meteringComplete ? median(completeReports.map((report) => report.hitRate)) : null,
+    warmHitRate: meteringComplete ? median(completeReports.map((report) => report.warmHitRate)) : null,
+    measuredCostIndex: meteringComplete
+      ? median(completeReports.map((report) => report.measuredCostIndex)) ?? representative.measuredCostIndex
+      : undefined,
     baselineCostIndex: median(completeReports.map((report) => report.baselineCostIndex)),
     cacheReadTokens: median(completeReports.map((report) => report.cacheReadTokens)) ?? representative.cacheReadTokens,
     cacheCreationTokens: median(completeReports.map((report) => report.cacheCreationTokens)) ?? representative.cacheCreationTokens,
     evidenceFields,
+    meteringObserved: reports.some((report) => report.meteringObserved),
+    meteringComplete,
     comparisonAssumption,
     evidenceSufficient: allConfirmed,
     requestedRuns,
@@ -3529,7 +3614,6 @@ const Index = () => {
     let attachmentSpecs: AttachmentRequestSpec[] = [];
     let uploadedAttachmentsPersisted = false;
     const requestModel = customModelId.trim() || selectedModel;
-    const protocolModel = resolveModelProfileId(requestModel) || selectedModel;
     const metadataUserId = selectedModel.startsWith("claude-")
       ? OFFICIAL_CLAUDE_PROBE_METADATA_USER_ID
       : createAnonymousClaudeUserId();
@@ -3560,7 +3644,7 @@ const Index = () => {
         }
       }
 
-      const endpointMode = resolveEndpoint(url, protocolModel, protocol).mode;
+      const endpointMode = resolveEndpoint(url, requestModel, protocol, selectedModel).mode;
       const requestProtocol: ApiProtocol = protocol === "auto" ? endpointMode : protocol;
       let kind: DetectionResult["kind"] = "text";
       let profileId = "";
@@ -3628,7 +3712,9 @@ const Index = () => {
         // canonical profile when entered in the configuration field.
         const suite = createEvaluationSuite(
           selectedModel,
-          Math.floor(Math.random() * 0x1_0000_0000),
+          hasDedicatedVerifier(selectedModel)
+            ? Math.floor(Math.random() * 0x1_0000_0000)
+            : createEvaluationSeed(selectedModel, new Date()),
           familyHint,
           new Date(),
           "official-random",
@@ -3914,6 +4000,9 @@ const Index = () => {
       // failure. Unsupported profiles and protocols are handled by the cache
       // runner itself without affecting the quality score.
       if (cacheCheckRequested && !cacheReport && canRunCacheObservation(selectedModel)) {
+        if (requestProtocol === "anthropic") {
+          await abortableDelay(DEFAULT_DETECTION_PHASE_DELAY_MS, signal);
+        }
         cacheReport = await runClaudeCacheCheck({
           baseUrl: url,
           apiKey,
@@ -3937,6 +4026,7 @@ const Index = () => {
           };
         } else {
           try {
+            await abortableDelay(DEFAULT_DETECTION_PHASE_DELAY_MS, signal);
             const snapshot = await fetchLiveKnowledgeSnapshot(signal);
             const liveProbe = await sendProbe({
               baseUrl: url,

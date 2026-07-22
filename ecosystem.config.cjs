@@ -39,6 +39,7 @@ module.exports = {
       kill_timeout: 12000,
       env: {
         NODE_ENV: "production",
+        TZ: "Asia/Shanghai",
         KANGKANG_INSTALL_TRACKER_MAIN: "true",
         INSTALL_TRACKER_HOST: "127.0.0.1",
         INSTALL_TRACKER_PORT: "6723",
@@ -60,6 +61,7 @@ module.exports = {
       kill_timeout: 12000,
       env: {
         NODE_ENV: "production",
+        TZ: "Asia/Shanghai",
         KANGKANG_WEB_MAIN: "true",
         HOST: "127.0.0.1",
         PORT: "6722",

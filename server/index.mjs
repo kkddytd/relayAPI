@@ -31,6 +31,8 @@ import { analyzeAttachments, isUngroundedAttachmentAnalysis } from "./attachment
 import { attachmentViewUrl, publicAttachmentRecord, receiveAttachmentUpload, receiveAttachmentUploadWithFields } from "./attachments.mjs";
 import { createAppStorage, credentialFingerprint } from "./storage.mjs";
 import { loadEnvironmentFiles, resolveInstallTrackerUrl } from "./start-config.mjs";
+import { createKeyedSerialQueue } from "./keyed-serial-queue.mjs";
+import { DEFAULT_CACHE_REQUEST_TIMEOUT_MS, retryDelayMs } from "../shared/request-pacing.mjs";
 
 export function extractAnthropicContentSignatures(payload) {
   const values = [];
@@ -161,6 +163,7 @@ const attachmentFallbackAttempts = Number.isFinite(configuredAttachmentFallbackA
   ? Math.max(1, Math.min(5, Math.trunc(configuredAttachmentFallbackAttempts)))
   : 3;
 const trustProxy = process.env.TRUST_PROXY === "true";
+const installationReportTrustPrivateProxy = process.env.INSTALL_REPORT_TRUST_PRIVATE_PROXY !== "false";
 const trustedProxyAddresses = new Set((process.env.TRUSTED_PROXY_ADDRESSES || "")
   .split(",")
   .map((item) => normalizeRemoteAddress(item))
@@ -621,6 +624,44 @@ export function createConcurrencyGate(limit) {
 
 const probeConcurrencyGate = createConcurrencyGate(probeMaxConcurrency);
 const turnstileConcurrencyGate = createConcurrencyGate(turnstileMaxConcurrency);
+const probeSerialQueue = createKeyedSerialQueue();
+const detectionSerialQueue = createKeyedSerialQueue();
+
+function normalizedQueueCredential(value) {
+  return String(value || "").trim().replace(/^authorization\s*:\s*/i, "").replace(/^(?:bearer|basic)\s+/i, "").replace(/^x-api-key\s*:\s*/i, "");
+}
+
+export function upstreamQueueKey(endpoint, headers = {}) {
+  let target;
+  try {
+    target = endpoint instanceof URL ? endpoint : new URL(String(endpoint));
+  } catch {
+    return "invalid|anonymous";
+  }
+  const credentials = [];
+  for (const [name, value] of Object.entries(headers)) {
+    if (!/(?:authorization|api[-_]?key|token)/i.test(name) || typeof value !== "string") continue;
+    const normalized = normalizedQueueCredential(value);
+    if (normalized) credentials.push(normalized);
+  }
+  for (const [name, value] of target.searchParams) {
+    if (!/(?:api[-_]?key|token)/i.test(name)) continue;
+    const normalized = normalizedQueueCredential(value);
+    if (normalized) credentials.push(normalized);
+  }
+  const credential = [...new Set(credentials)].sort().join("\n");
+  return `${target.host.toLowerCase()}|${credentialFingerprint(credential) || "anonymous"}`;
+}
+
+export function detectionQueueKey(baseUrl, apiKey) {
+  let hostName = "invalid";
+  try {
+    hostName = new URL(String(baseUrl)).host.toLowerCase();
+  } catch {
+    hostName = String(baseUrl || "").trim().toLowerCase();
+  }
+  return `${hostName}|${credentialFingerprint(normalizedQueueCredential(apiKey)) || "anonymous"}`;
+}
 
 export function createClientDisconnectController(req, res) {
   const controller = new AbortController();
@@ -667,9 +708,9 @@ export function requestSourceKey(req) {
   return lastValidForwardedAddress(req.headers["x-forwarded-for"]) || socketAddress;
 }
 
-export function installationReportSourceIp(req) {
+export function installationReportSourceIp(req, allowPrivateProxy = installationReportTrustPrivateProxy) {
   const socketAddress = normalizeRemoteAddress(req.socket?.remoteAddress) || "unknown";
-  if (isLoopbackAddress(socketAddress)) {
+  if (isLoopbackAddress(socketAddress) || (allowPrivateProxy && isPrivateAddress(socketAddress))) {
     return lastValidForwardedAddress(req.headers["x-forwarded-for"]) ||
       lastValidForwardedAddress(req.headers["x-real-ip"]) ||
       socketAddress;
@@ -690,26 +731,26 @@ function isInternalProbeRequest(req) {
   return Boolean(token && safeSecretEqual(token, internalProbeToken));
 }
 
-function detectionApiAuthorization(req) {
-  if (detectorApiKeys.length === 0) {
+export function detectionApiAuthorization(req, configuredKeys = detectorApiKeys) {
+  if (configuredKeys.length === 0) {
     return isDirectLoopbackRequest(req)
       ? { allowed: true, mode: "local", ownerScope: "local", fingerprint: null }
       : { allowed: false, status: 503, code: "detector_api_not_configured" };
   }
   const authorization = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
   const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || "";
-  const allowed = Boolean(token && detectorApiKeys.some((candidate) => safeSecretEqual(token, candidate)));
+  const allowed = Boolean(token && configuredKeys.some((candidate) => safeSecretEqual(token, candidate)));
   return allowed
     ? { allowed: true, mode: "bearer", ownerScope: `api:${credentialFingerprint(token)}`, fingerprint: credentialFingerprint(token) }
     : { allowed: false, status: 401, code: "invalid_detector_api_key" };
 }
 
-function webDataAuthorization(req, res, { allowPublic = true } = {}) {
+export function webDataAuthorization(req, res, { allowPublic = true, configuredKeys = detectorApiKeys } = {}) {
+  const apiAuthorization = detectionApiAuthorization(req, configuredKeys);
+  if (apiAuthorization.allowed) return apiAuthorization;
   if (isDirectLoopbackRequest(req)) {
     return { allowed: true, mode: "local", ownerScope: "local", fingerprint: null };
   }
-  const apiAuthorization = detectionApiAuthorization(req);
-  if (apiAuthorization.allowed) return apiAuthorization;
   if (isTrustedWebProxyRequest(req) || (allowLanWebWithoutTurnstile && isDirectLanRequest(req))) {
     const session = ensureWebSession(req, res);
     return {
@@ -744,12 +785,8 @@ function webDataAuthorization(req, res, { allowPublic = true } = {}) {
   };
 }
 
-// The browser UI has its own anonymous session so that a public page can
-// read its own history and upload files. Public Web access must not silently
-// become public programmatic detection access: API routes accept a detector
-// bearer key, localhost, or an explicitly trusted/verified Web request only.
-function detectorRouteAuthorization(req, res) {
-  return webDataAuthorization(req, res, { allowPublic: false });
+function detectorRouteAuthorization(req) {
+  return detectionApiAuthorization(req);
 }
 
 function requestPublicBaseUrl(req) {
@@ -1681,6 +1718,8 @@ async function handleProbeRequest(req, res, requestSignal) {
 
   let upstreamDispatcher = null;
   let outboundCredentials = [];
+  let upstreamQueueRelease = null;
+  let upstreamTargetKey = null;
   try {
     // Internal probes are generated by this process and may carry a native
     // image/PDF as base64. Public probe callers keep the bounded JSON limit.
@@ -1745,6 +1784,8 @@ async function handleProbeRequest(req, res, requestSignal) {
       sendJson(res, code === "private_upstream_blocked" ? 403 : 502, { ok: false, error: code });
       return;
     }
+    upstreamTargetKey = upstreamQueueKey(endpointUrl, headers);
+    upstreamQueueRelease = await probeSerialQueue.acquire(upstreamTargetKey, requestSignal);
 
     appendLog("probe_request", {
       route: "/__probe",
@@ -1792,7 +1833,10 @@ async function handleProbeRequest(req, res, requestSignal) {
     try {
       const requestedTimeoutMs = Number.isFinite(parsed.timeoutMs) ? Math.trunc(parsed.timeoutMs) : null;
       const probeTimeoutMs = (stage === "cache" || /^cachecheck-r\d+$/.test(stage))
-        ? Math.min(upstreamTimeoutMs, Math.max(1_000, Math.min(requestedTimeoutMs ?? 10_000, 10_000)))
+        ? Math.min(upstreamTimeoutMs, Math.max(5_000, Math.min(
+            requestedTimeoutMs ?? DEFAULT_CACHE_REQUEST_TIMEOUT_MS,
+            DEFAULT_CACHE_REQUEST_TIMEOUT_MS,
+          )))
         : stage === "live-knowledge"
           ? Math.min(upstreamTimeoutMs, 45_000)
           : upstreamTimeoutMs;
@@ -2266,6 +2310,7 @@ async function handleProbeRequest(req, res, requestSignal) {
     const responseHeaders = {};
     for (const name of [
       "content-type",
+      "retry-after",
       "server",
       "via",
       "x-amzn-requestid",
@@ -2281,6 +2326,10 @@ async function handleProbeRequest(req, res, requestSignal) {
       if (typeof respHeaders[name] === "string" && respHeaders[name]) {
         responseHeaders[name] = respHeaders[name];
       }
+    }
+    const upstreamRetryDelay = retryDelayMs(upstream.status, respHeaders);
+    if (upstreamRetryDelay > 0 && upstreamTargetKey) {
+      probeSerialQueue.defer(upstreamTargetKey, upstreamRetryDelay);
     }
     const redirectLocation = upstream.status >= 300 && upstream.status < 400
       ? upstream.headers.get("location")
@@ -2439,6 +2488,8 @@ async function handleProbeRequest(req, res, requestSignal) {
       status: responseStatus,
       response: payload,
     });
+  } finally {
+    upstreamQueueRelease?.();
   }
 }
 
@@ -2704,41 +2755,43 @@ async function executePersistedDetection(value, {
   const request = canonicalDetectionRequest(value);
   const runId = appStorage().createRun({ source, ownerScope, parentRunId, request, reportId });
   try {
-    const report = await runModelDetection(value, {
-      id: reportId,
-      seedSecret: detectionSeedSecret,
-      signal,
-      probe: (payload, options = {}) => invokeInternalProbe(payload, {
-        ...options,
-        allowPrivateUpstream,
-      }),
-      getLiveKnowledgeSnapshot,
-    });
-    if (value.attachments?.length > 0) {
-      report.attachment_analysis = publicAttachmentAnalysis(await analyzeAttachments({
-        input: value,
-        attachmentSpecs: value.attachments,
-        storage: appStorage(),
-        ownerScope,
+    return await detectionSerialQueue.run(detectionQueueKey(value.baseUrl, value.upstreamApiKey), signal, async () => {
+      const report = await runModelDetection(value, {
+        id: reportId,
+        seedSecret: detectionSeedSecret,
         signal,
-        fallbackModels: attachmentFallbackModels,
-        fallbackProtocols: attachmentFallbackProtocols,
-        fallbackAttempts: attachmentFallbackAttempts,
         probe: (payload, options = {}) => invokeInternalProbe(payload, {
           ...options,
           allowPrivateUpstream,
         }),
-      }));
-      report.request.attachments = value.attachments.map((item) => {
-        const record = appStorage().getAttachment(item.id, ownerScope);
-        return {
-          name: record?.original_name || "attachment",
-          mode: item.mode,
-        };
+        getLiveKnowledgeSnapshot,
       });
-    }
-    appStorage().finishRun(runId, { status: report.status, report });
-    return { runId, report };
+      if (value.attachments?.length > 0) {
+        report.attachment_analysis = publicAttachmentAnalysis(await analyzeAttachments({
+          input: value,
+          attachmentSpecs: value.attachments,
+          storage: appStorage(),
+          ownerScope,
+          signal,
+          fallbackModels: attachmentFallbackModels,
+          fallbackProtocols: attachmentFallbackProtocols,
+          fallbackAttempts: attachmentFallbackAttempts,
+          probe: (payload, options = {}) => invokeInternalProbe(payload, {
+            ...options,
+            allowPrivateUpstream,
+          }),
+        }));
+        report.request.attachments = value.attachments.map((item) => {
+          const record = appStorage().getAttachment(item.id, ownerScope);
+          return {
+            name: record?.original_name || "attachment",
+            mode: item.mode,
+          };
+        });
+      }
+      appStorage().finishRun(runId, { status: report.status, report });
+      return { runId, report };
+    });
   } catch (error) {
     appStorage().finishRun(runId, {
       status: signal?.aborted ? "cancelled" : "failed",
@@ -2754,7 +2807,7 @@ async function handleAttachmentUpload(req, res) {
   req.setTimeout(0);
   const authorization = detectorRouteAuthorization(req, res);
   if (!authorization.allowed) {
-    sendApiError(res, authorization.status || 403, authorization.code || "attachment_access_denied", "Attachment upload requires local, Turnstile, or detector API access");
+    sendApiError(res, authorization.status || 403, authorization.code || "attachment_access_denied", "Attachment upload requires localhost or detector API access");
     return;
   }
   const contentType = typeof req.headers["content-type"] === "string" ? req.headers["content-type"] : "";
@@ -3235,8 +3288,8 @@ async function handleDetectionApi(req, res) {
       authorization.status,
       authorization.code,
       authorization.status === 503
-        ? "Configure DETECTOR_API_KEYS or call through a trusted Web session"
-        : "Provide a valid detector API key or verified Web session",
+        ? "Configure DETECTOR_API_KEYS before calling this endpoint remotely"
+        : "Provide a valid detector API key",
     );
     return;
   }
@@ -3325,10 +3378,7 @@ async function handleDetectionApi(req, res) {
 }
 
 function apiAuthenticationMode() {
-  const webSessionEnabled = Boolean(trustedWebProxyToken || turnstileSecret || allowLanWebWithoutTurnstile);
-  if (detectorApiKeys.length > 0 && webSessionEnabled) return "bearer-or-web-session";
   if (detectorApiKeys.length > 0) return "bearer";
-  if (webSessionEnabled) return "web-session-or-localhost";
   return "localhost-only";
 }
 

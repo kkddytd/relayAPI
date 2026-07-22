@@ -353,23 +353,27 @@ test("trusted Web sessions isolate attachments and preserve UTF-8 filenames", as
     extraHTTPHeaders: trustedWebHeaders("203.0.113.11"),
   });
   try {
-    const uploaded = await ownerA.post("/api/v1/attachments", {
-      multipart: {
-        files: {
-          name: "任意附件.未知",
-          mimeType: "application/x-unrestricted",
-          buffer: Buffer.from([0, 255, 7, 8, 9]),
-        },
-      },
-    });
-    expect(uploaded.status()).toBe(201);
+    const uploaded = await ownerA.post("/api/v1/web/attachment-analysis", multipartDetectionBody({
+      base_url: upstreamUrl,
+      upstream_api_key: "isolated-owner-key",
+      model: "e2e-code-model",
+      protocol: "openai-chat",
+      rounds: 1,
+      checks: { cache: false, live_knowledge: false },
+      attachments: [{ mode: "understand" }],
+    }, [{
+      name: "任意附件.未知",
+      mimeType: "application/x-unrestricted",
+      buffer: Buffer.from([0, 255, 7, 8, 9]),
+    }]));
+    expect(uploaded.status()).toBe(200);
     expect(uploaded.headers()["set-cookie"]).toContain("kk_web_session=");
     const body = await uploaded.json();
-    expect(body.items[0]).toMatchObject({ name: "任意附件.未知" });
+    expect(body.attachments[0]).toMatchObject({ name: "任意附件.未知" });
 
-    const attachmentId = body.items[0].id;
-    expect((await ownerB.delete(`/api/v1/attachments/${attachmentId}`)).status()).toBe(404);
-    expect((await ownerA.delete(`/api/v1/attachments/${attachmentId}`)).status()).toBe(200);
+    const attachmentId = body.attachments[0].id;
+    expect((await ownerB.delete(`/api/v1/web/attachments/${attachmentId}`)).status()).toBe(404);
+    expect((await ownerA.delete(`/api/v1/web/attachments/${attachmentId}`)).status()).toBe(200);
   } finally {
     await ownerA.dispose();
     await ownerB.dispose();
@@ -427,8 +431,8 @@ test("trusted Web sessions isolate history, clearing, and retesting", async ({ b
     });
 
     const publicDetection = await ownerA.post("/api/v1/detections", { data: {} });
-    expect(publicDetection.status()).toBe(400);
-    expect(await publicDetection.json()).toMatchObject({ error: { code: "validation_failed" } });
+    expect(publicDetection.status()).toBe(503);
+    expect(await publicDetection.json()).toMatchObject({ error: { code: "detector_api_not_configured" } });
     await ownerA.delete("/api/v1/web/history");
   } finally {
     await ownerA.dispose();

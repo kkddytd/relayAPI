@@ -40,6 +40,7 @@ function statusTone(status: CacheReport["status"]): string {
 }
 
 function roundAssessment(round: CacheRound, t: ReturnType<typeof useI18n>["t"]): string {
+  if ((round.usageComplete ?? round.usageObserved) === false) return "-";
   const value = round.multiplier;
   if (value === null || value === undefined) return "-";
   if (value >= 0.7 && value <= 1.1) return t("cacheAssessmentNormal");
@@ -79,7 +80,10 @@ export function CacheReportPanel({ report }: { report: CacheReport }) {
   const hasMultipleRuns = requestedRuns > 1 || groupReports.length > 1;
   const multiRunUnconfirmed = hasMultipleRuns && report.applicable &&
     completedRuns === requestedRuns && report.status === "unconfirmed";
-  const score = compared ? report.compatibilityScore ?? null : null;
+  const meteringObserved = report.meteringObserved !== false;
+  const meteringComplete = report.meteringComplete ?? meteringObserved;
+  const aggregateMeteringAvailable = meteringObserved && meteringComplete;
+  const score = compared && aggregateMeteringAvailable ? report.compatibilityScore ?? null : null;
   const arithmeticHitRate = compared ? report.comparisonHitRate ?? report.hitRate : report.hitRate;
   const weightedWarmHitRate = report.warmHitRate;
   const hitRateTone = typeof arithmeticHitRate !== "number"
@@ -107,7 +111,7 @@ export function CacheReportPanel({ report }: { report: CacheReport }) {
         : report.status === "failed"
           ? t("cacheFailed")
           : report.status === "unobserved"
-            ? t("cacheUnobserved")
+            ? report.meteringObserved === false ? t("cacheNoMetering") : t("cacheUnobserved")
             : t("cacheUnconfirmed")
       : score >= 80 ? t("cacheScoreNormal") : score >= 60 ? t("cacheScoreDeviated") : t("cacheScoreAbnormal");
   const labelTone = !report.applicable || multiRunUnconfirmed
@@ -117,17 +121,17 @@ export function CacheReportPanel({ report }: { report: CacheReport }) {
     ? [
         { label: t("cacheCompatibilityScore"), value: score === null ? "-" : `${score}/100`, tone: scoreTone(score) },
         { label: t("cacheBaselineWeighted"), value: compactNumber(report.baselineCostIndex), tone: "text-foreground" },
-        { label: t("cacheMeasuredWeighted"), value: compactNumber(report.measuredCostIndex), tone: "text-foreground" },
-        { label: t("cacheOverallMultiplier"), value: report.baselineMultiplier === null || report.baselineMultiplier === undefined ? "-" : `${Number(report.baselineMultiplier.toFixed(2))}x`, tone: multiplierTone(report.baselineMultiplier) },
-        { label: t("cacheHitRate"), value: arithmeticHitRate === null || arithmeticHitRate === undefined ? "-" : `${Math.round(arithmeticHitRate)}%`, tone: hitRateTone },
-        { label: t("cacheWarmHitRate"), value: weightedWarmHitRate === null || weightedWarmHitRate === undefined ? "-" : `${Math.round(weightedWarmHitRate)}%`, tone: "text-foreground" },
+        { label: t("cacheMeasuredWeighted"), value: aggregateMeteringAvailable ? compactNumber(report.measuredCostIndex) : "-", tone: "text-foreground" },
+        { label: t("cacheOverallMultiplier"), value: aggregateMeteringAvailable && report.baselineMultiplier !== null && report.baselineMultiplier !== undefined ? `${Number(report.baselineMultiplier.toFixed(2))}x` : "-", tone: multiplierTone(aggregateMeteringAvailable ? report.baselineMultiplier : null) },
+        { label: t("cacheHitRate"), value: aggregateMeteringAvailable && arithmeticHitRate !== null && arithmeticHitRate !== undefined ? `${Math.round(arithmeticHitRate)}%` : "-", tone: aggregateMeteringAvailable ? hitRateTone : "text-muted-foreground" },
+        { label: t("cacheWarmHitRate"), value: aggregateMeteringAvailable && weightedWarmHitRate !== null && weightedWarmHitRate !== undefined ? `${Math.round(weightedWarmHitRate)}%` : "-", tone: "text-foreground" },
       ]
     : [
         { label: t("cacheRounds"), value: report.applicable ? `${completedRounds}/${logicalRounds}` : "-", tone: "text-foreground" },
         { label: t("cacheHitRate"), value: arithmeticHitRate === null || arithmeticHitRate === undefined ? "-" : `${Math.round(arithmeticHitRate)}%`, tone: "text-foreground" },
         { label: t("cacheWarmHitRate"), value: weightedWarmHitRate === null || weightedWarmHitRate === undefined ? "-" : `${Math.round(weightedWarmHitRate)}%`, tone: "text-foreground" },
-        { label: t("cacheColCreation"), value: compactNumber(report.cacheCreationTokens), tone: "text-foreground" },
-        { label: t("cacheColRead"), value: compactNumber(report.cacheReadTokens), tone: "text-foreground" },
+        { label: t("cacheColCreation"), value: aggregateMeteringAvailable ? compactNumber(report.cacheCreationTokens) : "-", tone: "text-foreground" },
+        { label: t("cacheColRead"), value: aggregateMeteringAvailable ? compactNumber(report.cacheReadTokens) : "-", tone: "text-foreground" },
       ];
 
   return (
@@ -199,12 +203,20 @@ export function CacheReportPanel({ report }: { report: CacheReport }) {
                 : t("cacheNoIndependentBaseline")}
         </p>
       )}
-      {(compared && report.comparisonAssumption === "missing_usage_treated_as_zero") ||
-        (compared && report.observedWarmRounds === 0 && completedRounds >= logicalRounds) ? (
+      {meteringObserved && ((compared && report.comparisonAssumption === "missing_usage_treated_as_zero") ||
+        (compared && report.observedWarmRounds === 0 && completedRounds >= logicalRounds)) ? (
         <p className="mt-2 text-xs leading-relaxed text-warning">{t("cacheMissingFieldsComparedAsZero")}</p>
       ) : null}
-      {!compared && completedRounds >= logicalRounds && report.evidenceFields.length === 0 && (
-        <p className="mt-2 text-xs leading-relaxed text-warning">{t("cacheNoEvidence")}</p>
+      {!meteringObserved && completedRounds >= logicalRounds && (
+        <p className="mt-2 text-xs leading-relaxed text-warning">{t("cacheNoMetering")}</p>
+      )}
+      {meteringObserved && !meteringComplete && completedRounds >= logicalRounds && (
+        <p className="mt-2 text-xs leading-relaxed text-warning">{t("cacheMeteringIncomplete")}</p>
+      )}
+      {meteringObserved && !compared && completedRounds >= logicalRounds && report.evidenceFields.length === 0 && (
+        <p className="mt-2 text-xs leading-relaxed text-warning">
+          {t("cacheNoEvidence")}
+        </p>
       )}
       {report.failureDetail && !(hasMultipleRuns && report.status === "incomplete" && report.failureDetail === t("cacheMultiRunIncomplete")) && (
         <p className="mt-2 break-words text-xs leading-relaxed text-error">{report.failureDetail}</p>
@@ -234,13 +246,13 @@ export function CacheReportPanel({ report }: { report: CacheReport }) {
                 {report.rounds.map((round) => (
                   <tr key={round.round} className="border-b border-border last:border-0">
                     <td className="px-2 py-2 font-mono text-foreground">{round.round}</td>
-                    <td className="px-2 py-2 text-right font-mono text-foreground">{round.inputTokens}{deltaText(round.inputDeltaPct)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-foreground">{round.outputTokens}{deltaText(round.outputDeltaPct)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-foreground">{round.cacheCreationTokens}{deltaText(round.cacheCreationDeltaPct)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-foreground">{round.cacheReadTokens}{deltaText(round.cacheReadDeltaPct)}</td>
-                    <td className="px-2 py-2 text-right font-mono text-foreground">{compactNumber(round.measuredWeighted)}</td>
-                    {compared && <td className={`px-2 py-2 text-right font-mono ${multiplierTone(round.multiplier)}`}>{round.multiplier === null || round.multiplier === undefined ? "-" : `${Number(round.multiplier.toFixed(2))}x`}</td>}
-                    {compared && <td className={`px-2 py-2 text-right font-medium ${multiplierTone(round.multiplier)}`}>{roundAssessment(round, t)}</td>}
+                    <td className="px-2 py-2 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : `${round.inputTokens}${deltaText(round.inputDeltaPct)}`}</td>
+                    <td className="px-2 py-2 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : `${round.outputTokens}${deltaText(round.outputDeltaPct)}`}</td>
+                    <td className="px-2 py-2 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : `${round.cacheCreationTokens}${deltaText(round.cacheCreationDeltaPct)}`}</td>
+                    <td className="px-2 py-2 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : `${round.cacheReadTokens}${deltaText(round.cacheReadDeltaPct)}`}</td>
+                    <td className="px-2 py-2 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : compactNumber(round.measuredWeighted)}</td>
+                    {compared && <td className={`px-2 py-2 text-right font-mono ${multiplierTone((round.usageComplete ?? round.usageObserved) === false ? null : round.multiplier)}`}>{(round.usageComplete ?? round.usageObserved) === false || round.multiplier === null || round.multiplier === undefined ? "-" : `${Number(round.multiplier.toFixed(2))}x`}</td>}
+                    {compared && <td className={`px-2 py-2 text-right font-medium ${multiplierTone((round.usageComplete ?? round.usageObserved) === false ? null : round.multiplier)}`}>{roundAssessment(round, t)}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -258,7 +270,9 @@ export function CacheReportPanel({ report }: { report: CacheReport }) {
               const groupRounds = group.completedRounds ?? group.rounds.length;
               const groupLogicalRounds = group.logicalRounds ?? 5;
               const groupComplete = groupRounds >= groupLogicalRounds && group.status !== "failed" && group.status !== "partial" && group.status !== "incomplete";
-              const groupScore = group.baselineComparison === "compared" ? group.compatibilityScore : null;
+              const groupScore = group.baselineComparison === "compared" && group.meteringComplete !== false
+                ? group.compatibilityScore
+                : null;
               return (
                 <details key={`cache-group-${index}`} className="group/cache-group py-2">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs text-foreground">
@@ -295,11 +309,11 @@ export function CacheReportPanel({ report }: { report: CacheReport }) {
                           {group.rounds.map((round) => (
                             <tr key={round.round} className="border-b border-border last:border-0">
                               <td className="px-2 py-1.5 font-mono text-foreground">{round.round}</td>
-                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{round.inputTokens}</td>
-                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{round.outputTokens}</td>
-                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{round.cacheCreationTokens}</td>
-                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{round.cacheReadTokens}</td>
-                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{compactNumber(round.measuredWeighted)}</td>
+                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : round.inputTokens}</td>
+                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : round.outputTokens}</td>
+                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : round.cacheCreationTokens}</td>
+                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : round.cacheReadTokens}</td>
+                              <td className="px-2 py-1.5 text-right font-mono text-foreground">{(round.usageComplete ?? round.usageObserved) === false ? "-" : compactNumber(round.measuredWeighted)}</td>
                             </tr>
                           ))}
                         </tbody>

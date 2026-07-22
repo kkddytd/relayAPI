@@ -16,6 +16,17 @@ describe("resolveEndpoint", () => {
     });
   });
 
+  it("uses the selected evaluation profile when a custom model name resembles another provider", () => {
+    expect(resolveEndpoint("https://relay.example/v1", "claude-custom-route", "auto", "gpt-5.6-sol")).toEqual({
+      endpoint: "https://relay.example/v1/chat/completions",
+      mode: "openai-chat",
+    });
+    expect(resolveEndpoint("https://relay.example/v1", "gpt-custom-route", "auto", "claude-opus-4-8")).toEqual({
+      endpoint: "https://relay.example/v1/messages",
+      mode: "anthropic",
+    });
+  });
+
   it("normalizes a custom bare host like the official verifier", () => {
     expect(resolveEndpoint("api.openai.com", "gpt-5.5")).toEqual({
       endpoint: "https://api.openai.com/v1/chat/completions",
@@ -118,12 +129,38 @@ describe("resolveEndpoint", () => {
       mode: "google-generative",
     });
     expect(resolveEndpoint(
+      "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/anthropic",
+      "vendor-gemini-alias",
+      "google-generative",
+    )).toEqual({
+      endpoint: "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/google/models/vendor-gemini-alias:generateContent",
+      mode: "google-generative",
+    });
+    expect(resolveEndpoint(
       "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/anthropic/models/claude-opus-4-8:rawPredict",
       "claude-opus-4-8",
       "auto",
     )).toEqual({
       endpoint: "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/anthropic/models/claude-opus-4-8:rawPredict",
       mode: "anthropic",
+    });
+    expect(resolveEndpoint(
+      "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1",
+      "vendor-claude-alias",
+      "auto",
+      "claude-opus-4-8",
+    )).toEqual({
+      endpoint: "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/anthropic/models/vendor-claude-alias:rawPredict",
+      mode: "anthropic",
+    });
+    expect(resolveEndpoint(
+      "https://generativelanguage.googleapis.com/v1beta",
+      "vendor-ai-studio-model",
+      "auto",
+      "claude-opus-4-8",
+    )).toEqual({
+      endpoint: "https://generativelanguage.googleapis.com/v1beta/models/vendor-ai-studio-model:generateContent",
+      mode: "google-generative",
     });
   });
 });

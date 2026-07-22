@@ -266,6 +266,9 @@ export const en: I18nMessages = {
   checkKnowledgeBatch: "batch",
   checkKnowledgeSource: "bank",
   checkKnowledgeBoundaryAbstained: "all answers explicitly abstained; consistent with the Fable knowledge boundary and not treated as incorrect",
+  checkGptTokenName: "GPT 5.6 Token Usage",
+  checkGptTokenWithinThreshold: "Token usage stayed within the public thresholds",
+  checkGptTokenPenalty: "Token usage exceeded the public thresholds; {points} points deducted",
   checkPass: "Pass",
   checkFail: "Fail",
 
@@ -331,6 +334,8 @@ export const en: I18nMessages = {
   cachePartial: "Run incomplete; partial cache evidence captured",
   cacheUnconfirmed: "Five rounds complete; warm-round evidence is incomplete or reads were not sustained",
   cacheUnobserved: "Five rounds complete; upstream returned no cache usage fields",
+  cacheNoMetering: "Five rounds complete; no input, output, or cache token metering fields were observed",
+  cacheMeteringIncomplete: "Five rounds complete, but some rounds omitted token metering; top-level measured metrics were not calculated",
   cacheFailed: "Cache check request failed",
   cacheRounds: "Rounds",
   cacheCompletedRounds: "Completed logical rounds",

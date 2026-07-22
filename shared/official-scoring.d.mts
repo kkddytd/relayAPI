@@ -25,6 +25,10 @@ export const OFFICIAL_SCORING_REFERENCE: Readonly<{
   bundleSha256: string;
   probeConstantsBundle: string;
   probeConstantsSha256: string;
+  reasoningBundle: string;
+  reasoningBundleSha256: string;
+  algorithmRegistryBundle: string;
+  algorithmRegistryBundleSha256: string;
 }>;
 export const OFFICIAL_DEDICATED_MODELS: readonly string[];
 export const OFFICIAL_GPT_MODELS: readonly string[];
@@ -72,17 +76,47 @@ export function scoreClaudeCompatibility(options: {
 
 export function classifyReportedGptModel(value: unknown): string | null;
 export function officialGptModelMismatch(algorithmModel: unknown, reportedModel: unknown): boolean | null;
+export function normalizeOpenAiTokenUsage(...values: unknown[]): {
+  rawInputTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  inclusiveCacheReadTokens: number;
+  inclusiveCacheWriteTokens: number;
+  additiveCacheReadTokens: number;
+  additiveCacheWriteTokens: number;
+};
+export function gpt56TokenPenalty(algorithmModel: unknown, tokenUsage?: {
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
+}): {
+  applicable: boolean;
+  breakdown: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  total: number;
+};
 export function scoreGptCompatibility(options: {
   algorithmModel: string;
   reportedModel?: string | null;
   quizStatus: CheckStatus;
   protocolStatus: CheckStatus;
   responseStructureStatus: CheckStatus;
+  tokenUsage?: {
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    cacheReadTokens?: number | null;
+    cacheWriteTokens?: number | null;
+  };
 }): {
   supported: boolean;
   score: number | null;
+  baseScore: number | null;
   variantStatus: CheckStatus | "unsupported";
   mismatch: boolean | null;
+  tokenPenalty: ReturnType<typeof gpt56TokenPenalty>;
 };
 
 export function scoreGeminiCompatibility(options: {

@@ -120,7 +120,7 @@ export default function ApiDocs() {
   const responseExample = `{
   "ok": true,
   "api_version": "v1",
-  "engine_version": "2026-07-17.3",
+  "engine_version": "2026-07-22.2",
   "id": "6acb...",
   "status": "completed",
   "score": 100,
@@ -153,11 +153,15 @@ export default function ApiDocs() {
     "signature_evidence_status": "envelope_compatible"
   },
   "scoring_reference": {
-    "capturedAt": "2026-07-15",
-    "bundle": "shareReport-B_FOiUEI.js",
-    "bundleSha256": "02593b4301418722cbd19200822a87a05f041314504f07f0e37aebab415267e8",
-    "probeConstantsBundle": "probe-constants-YXB5_aNC.js",
-    "probeConstantsSha256": "ec057d221fa24d106fb64ccbc5914ae04fedb1b6f7f602fe15833768bbb41bcf"
+    "capturedAt": "2026-07-22",
+    "bundle": "shareReport-vS9UoxUO.js",
+    "bundleSha256": "32e3db32aa67543574ce9880093454a198d5f37359b91707d95ea41195696f8d",
+    "probeConstantsBundle": "probe-constants-DpbHYFO2.js",
+    "probeConstantsSha256": "d6f6bf9fa215d3de2c14d74b817f48ec2ac28cf124b07bef241643ea3e3bcfcd",
+    "reasoningBundle": "reasoningCheck-JktxwfVY.js",
+    "reasoningBundleSha256": "feef731234811199f4a7535d250e02994a77f084f803b5bbc95d2d49b15b9205",
+    "algorithmRegistryBundle": "detection-algorithm-registry-B4hNxm78.js",
+    "algorithmRegistryBundleSha256": "26788c314788bee39fd5c0ad1859a9d162771996466a67a6c1bb733cf0c08d67"
   },
   "verdict": {
     "value": "consistent",
@@ -187,7 +191,7 @@ export default function ApiDocs() {
         ["protocol", "enum", "否", "默认 auto。可选 anthropic、openai-chat、openai-responses、openai-images、google-generative。"],
         ["question_mode", "enum", "否", "默认 official-random，按官网每次随机抽题并记录题目 ID；stable 仅用于可重复的日批测试。"],
         ["rounds", "integer", "否", "稳定性检测轮数，1-3，默认 1。多轮会轮换知识题批，2 轮取平均、3 轮取中位数；费用按轮数增加。"],
-        ["checks.cache", "boolean", "否", "默认 false。Anthropic 协议会执行一组或多组缓存观测，每组固定 5 个逻辑轮次；5xx 重试或协议档案回退可能增加实际请求数。Fable 可观测，但因无独立官网基线而不计算缓存兼容分。"],
+        ["checks.cache", "boolean", "否", "默认 false。每组固定 5 个逻辑轮次，阶段与轮次默认间隔 3 秒，单次请求最长等待 45 秒；429/503 优先按 Retry-After（最长 120 秒）重试。Fable 可观测，但无独立官网缓存基线。"],
         ["checks.cache_runs", "integer", "否", "独立缓存验证组数，1-3，默认 1，仅在 checks.cache=true 时生效。每组固定 5 个逻辑轮次并使用新的 cache marker；多组全部完成后取各组中位数。"],
         ["checks.live_knowledge", "boolean", "否", "默认 false。额外发送 1 个实时知识访问能力请求，不计入质量分。"],
         ["attachments", "array", "否", "multipart 请求中按 files 的顺序填写可选模式和指令，无需 ID。附件检查只判断模型是否返回了基于附件的证据，不判断内容准确性，也不改变主分。旧的 verify/expected_intent 仅为兼容保留。"],
@@ -201,7 +205,7 @@ export default function ApiDocs() {
         ["protocol", "enum", "No", "Defaults to auto. Supports anthropic, openai-chat, openai-responses, openai-images, and google-generative."],
         ["question_mode", "enum", "No", "Defaults to official-random, matching the public website's per-run selection and recording question IDs. Use stable only for reproducible daily batches."],
         ["rounds", "integer", "No", "Stability rounds from 1 to 3. Knowledge batches rotate; two rounds average and three rounds use the median. Cost grows proportionally."],
-        ["checks.cache", "boolean", "No", "Defaults to false. Runs one or more Anthropic cache-observation groups, each with five logical rounds; 5xx retries or protocol-profile fallback may add requests. Fable can be observed but has no independent public baseline or cache compatibility score."],
+        ["checks.cache", "boolean", "No", "Defaults to false. Runs five-round Anthropic cache groups with three-second pacing and a 45-second per-request timeout. Retries for 429/503 honor Retry-After up to 120 seconds. Fable has no independent cache baseline."],
         ["checks.cache_runs", "integer", "No", "Independent cache-validation groups from 1 to 3; defaults to 1 and applies only when checks.cache=true. Every group has five logical rounds and a fresh cache marker. Complete multi-group results use the median across groups."],
         ["checks.live_knowledge", "boolean", "No", "Defaults to false. Sends one independent live-access check, excluded from quality scoring."],
         ["attachments", "array", "No", "For multipart requests, list optional modes and instructions in files order. No IDs are required. The recognition check only asks whether the model returned attachment-grounded evidence; it does not judge semantic accuracy or alter the primary score. Legacy verify/expected_intent fields remain for compatibility."],
@@ -266,6 +270,7 @@ export default function ApiDocs() {
         ["signature", "behavior", "Claude protobuf 签名信封、模型字段与 channel 标记。evidence.structural_compatibility_verdict 会返回 PASS/PARTIAL/UNKNOWN；cryptographically_verified=false 时仍只是结构兼容证据。"],
         ["upstream_unavailable", "operational", "没有产生可用上游响应。此时 status=unavailable、所有分数为 null，不能按模型失败解释。"],
         ["request_compatibility", "operational", "上游拒绝公开模板中的兼容字段后使用了受控重试，例如移除明确报错的 anthropic-beta。"],
+        ["token_usage", "behavior", "GPT 5.6 Sol/Terra 的官网 Token 扣分项；证据中返回 input 2000、output 2000、cache read 1000、cache write 1000 的阈值和实际扣分。"],
         ["knowledge / pdf / calculation", "capability", "近期知识、PDF 动态文本和结构化计算的任务正确性。题目通过不证明模型来源。"],
       ]
     : [
@@ -274,6 +279,7 @@ export default function ApiDocs() {
         ["signature", "behavior", "Claude protobuf signature envelope, model metadata, and channel marker. evidence.structural_compatibility_verdict returns PASS/PARTIAL/UNKNOWN; it remains structural evidence while cryptographically_verified=false."],
         ["upstream_unavailable", "operational", "No usable upstream response was produced. status is unavailable and all scores are null."],
         ["request_compatibility", "operational", "A controlled retry removed a field explicitly rejected by the upstream, such as an invalid anthropic-beta header."],
+        ["token_usage", "behavior", "Public GPT 5.6 Sol/Terra token penalty. Evidence includes the input 2000, output 2000, cache-read 1000, and cache-write 1000 thresholds plus the applied deduction."],
         ["knowledge / pdf / calculation", "capability", "Task correctness for recent knowledge, dynamic PDF text, and structured calculation. Passing does not prove provenance."],
       ];
 
@@ -283,9 +289,11 @@ export default function ApiDocs() {
         ["cache.aggregation", "single / median", "单组为 single；请求 2-3 组时为 median，顶层兼容分、命中率、倍率和 Token 指标取各完整组中位数。"],
         ["cache.status", "enum", "confirmed 表示五轮完成且 4/4 预热轮次都有缓存读取；unconfirmed 表示有 usage 证据但预热轮次覆盖不完整或读取不稳定；unobserved 表示五轮完成但四个预热轮次没有缓存 usage 字段，不能解读为真实未命中；incomplete/failed 表示请求未完整。"],
         ["cache.completed_rounds / logical_rounds", "integer", "已完成逻辑轮次与计划逻辑轮次；正常完成为 5/5。多组时与 cache.rounds[] 一样表示代表组，而不是合成的 10/15 轮。"],
-        ["cache.request_attempts", "integer", "全部验证组实际发送给上游的请求总数，包含同轮 5xx 重试和请求档案回退，因此可能大于 5 x requested_runs。"],
+        ["cache.request_attempts", "integer", "全部验证组实际发送给上游的请求总数，包含同轮临时错误重试和请求档案回退，因此可能大于 5 x requested_runs。"],
         ["cache.request_profiles_used", "string[]", "按顺序列出 custom / claude_code 请求档案；发生回退时同时返回两者。"],
         ["cache.observed_warm_rounds", "integer 0-4", "四个预热轮次中实际返回缓存 usage 字段的数量。只有 4/4 且每轮都有读取 token 才能显示 confirmed；多组时该值对应代表组，请以 cache.runs[] 比较波动。"],
+        ["cache.metering_observed", "boolean", "是否观察到任何 input、output、cache read 或 cache write Token 字段。false 时轮次中的 0 只是缺失字段占位，不是实际用量；多组中任一完整组完全无计量时，顶层实测聚合指标返回 null。"],
+        ["cache.metering_complete", "boolean", "五个逻辑轮次是否都同时返回 input/output Token 计量字段。false 时不计算顶层实测加权量、倍率和兼容分。"],
         ["cache.compatibility_score", "0-100 | null", "仅 Opus 4.6/4.7/4.8 和 Sonnet 4.6 按同模型、同公开 custom 模板基线计算；多组时为各完整组中位数。Fable 始终返回 null。该字段不是模型质量分或真伪分。"],
         ["cache.reference_weighted_tokens", "number | null", "五轮公开基线按输入 1.0、输出 5.0、缓存创建 1.25、缓存读取 0.1 加权后的总量。"],
         ["cache.measured_weighted_tokens", "number | null", "单组为该组五轮加权总量；多组为每组总量的中位数，不是合成的 10/15 轮总量。"],
@@ -295,7 +303,7 @@ export default function ApiDocs() {
         ["cache.comparison_assumption", "string | null", "仅 canonical 基线比较在缺少 usage 字段时返回 missing_usage_treated_as_zero：公开兼容公式按 0 读取计算，但实际观测仍是 unobserved，不代表真实未命中。"],
         ["cache.runs[]", "array", "每个独立验证组的完整五轮报告，按执行顺序返回；子项的 run 为 1-3，且不会再嵌套 runs。多组调用应以此字段查看各组波动。"],
         ["cache.runs[].run", "integer 1-3", "独立验证组的从 1 开始序号。"],
-        ["cache.rounds[]", "array", "向后兼容的单个真实代表组明细；多组时不能把它解释为全部 10/15 轮。每轮包含输入、输出、缓存创建/读取、加权量、倍率和判定。"],
+        ["cache.rounds[]", "array", "向后兼容的单个真实代表组明细；多组时不能把它解释为全部 10/15 轮。每轮包含输入、输出、缓存创建/读取 Token 与证据字段；input/output 计量不完整时，加权量、倍率和判定为 null。"],
         ["cache.failure_detail", "string | null", "缓存请求失败或响应无效时的简化原因。"],
       ]
     : [
@@ -303,9 +311,11 @@ export default function ApiDocs() {
         ["cache.aggregation", "single / median", "single is used for one group. Two or three requested groups use median for top-level compatibility, hit-rate, multiplier, and token metrics."],
         ["cache.status", "enum", "confirmed means five completed rounds with reads in all 4/4 warm rounds; unconfirmed means usage evidence exists but warm-round coverage or reads are incomplete; unobserved means all five completed but the four warm rounds exposed no cache-usage fields and must not be read as a real miss; incomplete/failed means the run did not finish."],
         ["cache.completed_rounds / logical_rounds", "integer", "Completed and planned logical rounds; a normal completed run reports 5/5. For multiple groups these describe the representative cache.rounds[] sequence, not a synthetic 10/15-round run."],
-        ["cache.request_attempts", "integer", "Actual upstream attempts across all groups, including same-round 5xx retries and request-profile fallback, so this can exceed 5 x requested_runs."],
+        ["cache.request_attempts", "integer", "Actual upstream attempts across all groups, including same-round transient retries and request-profile fallback, so this can exceed 5 x requested_runs."],
         ["cache.request_profiles_used", "string[]", "Ordered custom / claude_code request profiles. Both are returned when fallback occurs."],
         ["cache.observed_warm_rounds", "integer 0-4", "Number of the four warm rounds that returned provider cache-usage fields. Confirmation requires 4/4 with positive reads. For multiple groups this describes the representative sequence; inspect cache.runs[] for variation."],
+        ["cache.metering_observed", "boolean", "Whether any input, output, cache-read, or cache-write token field was observed. When false, round-level zeroes are missing-field placeholders. If any complete group has no metering, top-level measured aggregate metrics are null."],
+        ["cache.metering_complete", "boolean", "Whether all five logical rounds returned both input and output token metering. When false, top-level measured weighted tokens, multiplier, and compatibility score are null."],
         ["cache.compatibility_score", "0-100 | null", "Calculated only for Opus 4.6/4.7/4.8 and Sonnet 4.6 against a same-model public custom baseline; multi-group results use the median. Always null for Fable; not a quality or identity score."],
         ["cache.reference_weighted_tokens", "number | null", "Five-round reference total weighted as input 1.0, output 5.0, cache write 1.25, and cache read 0.1."],
         ["cache.measured_weighted_tokens", "number | null", "One group's five-round weighted total, or the per-group median for multiple groups. It is not a synthetic 10/15-round sum."],
@@ -315,7 +325,7 @@ export default function ApiDocs() {
         ["cache.comparison_assumption", "string | null", "For canonical comparisons only, missing_usage_treated_as_zero means the public compatibility formula used zero reads while the observation remains unobserved; it does not prove a real cache miss."],
         ["cache.runs[]", "array", "Full five-round report for every independent group in execution order. Child items have run=1..3 and do not nest runs. Use this field to inspect multi-group variation."],
         ["cache.runs[].run", "integer 1-3", "One-based index of the independent validation group."],
-        ["cache.rounds[]", "array", "Backward-compatible details for one real representative group. With multiple groups this is not all 10/15 rounds. Each item contains token usage, multiplier, deltas, and assessment."],
+        ["cache.rounds[]", "array", "Backward-compatible details for one real representative group. With multiple groups this is not all 10/15 rounds. Each item contains token and evidence fields; weighted tokens, multiplier, and assessment are null when input/output metering is incomplete."],
         ["cache.failure_detail", "string | null", "Sanitized failure reason when the cache run cannot complete."],
       ];
 
@@ -406,7 +416,7 @@ export default function ApiDocs() {
 
           <section id="cache-api">
             <h2 className="text-xl font-semibold text-foreground">{zh ? "缓存检测字段" : "Cache report fields"}</h2>
-            <p className="mb-4 mt-2 text-sm leading-7 text-muted-foreground">{zh ? "每个独立缓存验证组固定执行 5 个逻辑轮次。checks.cache_runs 可请求 1-3 组；每组使用新的 cache marker，多组全部完成后顶层指标取各组中位数。任一组未完成时不生成聚合分，应查看 cache.runs[] 的组级明细。5xx 重试或请求档案回退会增加实际请求数。Fable 会展示真实缓存创建/读取 token 和命中率，但因无独立官网基线而不生成兼容分。缓存结果不会降低 scores.quality。" : "Every independent cache-validation group runs five logical rounds. checks.cache_runs requests one to three groups with fresh cache markers; top-level metrics use the median only after every group completes. If any group is incomplete, aggregate scores are suppressed and cache.runs[] retains the group-level reports. Transient retries or request-profile fallback can increase attempts. Fable reports real cache writes, reads, and hit rate but no compatibility score because it has no independent public baseline. Cache results do not lower scores.quality."}</p>
+            <p className="mb-4 mt-2 text-sm leading-7 text-muted-foreground">{zh ? "每个缓存验证组固定执行 5 个逻辑轮次，核心检测到缓存、缓存各轮、多组缓存以及缓存到实时知识默认间隔 3 秒，单次缓存请求最长等待 45 秒。429/503 优先遵守 Retry-After，最长等待 120 秒后重试一次，空响应或无效结构也会纠正重试一次。checks.cache_runs 可请求 1-3 组；多组全部完成且都有计量证据后，顶层指标取中位数。缓存结果不会降低 scores.quality。" : "Each cache group runs five logical rounds with three-second pacing between core, cache rounds, groups, and live knowledge and a 45-second per-request timeout. A 429/503 retry honors Retry-After up to 120 seconds; empty or invalid response shapes are also retried once. checks.cache_runs supports one to three groups, and top-level medians require metering evidence from every complete group. Cache results do not lower scores.quality."}</p>
             <DocTable headers={zh ? ["字段", "类型/取值", "说明"] : ["Field", "Type / values", "Description"]} rows={cacheRows} />
             <div className="mt-4"><CodeBlock code={cacheCurl} label={zh ? "启用缓存检测" : "Enable cache probing"} /></div>
           </section>
@@ -429,6 +439,9 @@ export default function ApiDocs() {
               <p>{zh
                 ? "当前公开专用 GPT 范围是 gpt-5.6-sol、gpt-5.6-terra、gpt-5.5 和 gpt-5.4。只有这些档案使用官网近期知识探针；普通 gpt-5.6、Luna、GPT-4.1/4o 及其他 GPT 名称使用不依赖训练截止日期的确定性能力题，official_compatibility 返回 null。"
                 : "The current public dedicated GPT set is gpt-5.6-sol, gpt-5.6-terra, gpt-5.5, and gpt-5.4. Only those profiles use the public recent-knowledge probe. Plain gpt-5.6, Luna, GPT-4.1/4o, and other GPT IDs use deterministic cutoff-independent quality tasks, and official_compatibility is null."}</p>
+              <p>{zh
+                ? "gpt-5.6-sol 和 gpt-5.6-terra 使用 2026 年 1 月的 5 个官网事件题组，每组随机抽 1 题，答对至少 1 题即通过知识项。公开兼容分还会对超过 input 2000、output 2000、cache read 1000 或 cache write 1000 的 Token 用量扣分；报告中的 token_usage 检查项会返回阈值与扣分明细。"
+                : "gpt-5.6-sol and gpt-5.6-terra use five January 2026 public event groups, selecting one question from each group; one correct answer passes the knowledge check. The public compatibility score also penalizes token usage above input 2000, output 2000, cache read 1000, or cache write 1000. The token_usage check returns the thresholds and penalty breakdown."}</p>
               <p>{zh
                 ? "网页端先选择最接近的评测档案，再在“上游模型 ID（可选）”填写中转站真实模型名；API 调用则把真实名称放入 model，把评测档案放入 profile_model。报告会同时返回 request.model、request.profile_model 和 request.profile_resolution。"
                 : "In the Web UI, select the closest evaluation profile first, then enter the relay's real model name in the upstream model ID field. API callers put the real name in model and the evaluation profile in profile_model. The report returns request.model, request.profile_model, and request.profile_resolution together."}</p>

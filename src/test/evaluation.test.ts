@@ -7,6 +7,7 @@ import {
   gradeEvaluation,
   knowledgeAnswerMatches,
 } from "@/lib/evaluation";
+import { officialGpt56QuestionBank } from "../../shared/official-gpt-questions.mjs";
 import {
   calculateAuthenticityScore,
   calculateCapabilityScore,
@@ -65,7 +66,8 @@ describe("model-specific evaluation", () => {
     expect(gpt.authenticityStrategy).toBe("gpt");
     expect(legacyClaude.authenticityStrategy).toBe("claude-legacy");
     expect(modernClaude.authenticityStrategy).toBe("claude-modern");
-    expect(gpt.knowledgeRequired).toBeGreaterThan(legacyClaude.knowledgeRequired);
+    expect(gpt.knowledgeRequired).toBe(1);
+    expect(legacyClaude.knowledgeRequired).toBe(1);
     expect(getEvaluationProfile("claude-fable-5").cacheSupported).toBe(true);
     expect(getEvaluationProfile("claude-sonnet-5").cacheSupported).toBe(false);
     expect(getEvaluationProfile("claude-opus-4-8").cacheSupported).toBe(true);
@@ -207,9 +209,30 @@ describe("model-specific evaluation", () => {
     for (const model of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5", "gpt-5.4"]) {
       const suite = createEvaluationSuite(model, 7, "openai-compatible");
       expect(suite.profile.probeFamily, model).toBe("gpt");
-      expect(suite.profile.knowledgeSet, model).toBe("official-gpt-april-2025");
       expect(suite.knowledgeQuestions).toHaveLength(5);
+      if (model === "gpt-5.6-sol" || model === "gpt-5.6-terra") {
+        expect(suite.profile.knowledgeSet, model).toBe(`official-gpt56-january-2026-${model.endsWith("sol") ? "sol" : "terra"}`);
+        expect(suite.profile.knowledgeRequired, model).toBe(1);
+        expect(suite.knowledgeQuestions.every((question) => question.id.startsWith(model.endsWith("sol") ? "SOL-JAN-" : "TERRA-JAN-")), model).toBe(true);
+      } else {
+        expect(suite.profile.knowledgeSet, model).toBe("official-gpt-april-2025");
+        expect(suite.profile.knowledgeRequired, model).toBe(3);
+        expect(suite.knowledgeQuestions.every((question) => /2025/.test(question.id)), model).toBe(true);
+      }
     }
+  });
+
+  it("accepts every official English date order for the GPT 5.6 January batch", () => {
+    const question = officialGpt56QuestionBank("gpt-5.6-sol")
+      .find((item) => item.id === "SOL-JAN-016");
+    expect(question).toBeDefined();
+    expect(knowledgeAnswerMatches(question!, "January 22, 2026")).toBe(true);
+    expect(knowledgeAnswerMatches(question!, "22 January 2026")).toBe(true);
+    expect(knowledgeAnswerMatches(question!, "22 Jan 2026")).toBe(true);
+
+    const person = officialGpt56QuestionBank("gpt-5.6-sol")
+      .find((item) => item.id === "SOL-JAN-011");
+    expect(knowledgeAnswerMatches(person!, "Guy Parmelín")).toBe(true);
   });
 
   it("uses cutoff-independent capability tasks for quality-only GPT profiles", () => {
@@ -294,6 +317,7 @@ describe("model-specific evaluation", () => {
     const tariff = { id: "us-china-total-tariff-2025-04-10", prompt: "", answer: "145%", aliases: ["145"] };
     const gaza = { id: "gaza-death-toll-2025-04-27", prompt: "", answer: "52,243", aliases: ["52243"] };
     expect(knowledgeAnswerMatches(tariff, "I don't know, maybe 145%")).toBe(false);
+    expect(knowledgeAnswerMatches(tariff, "I don’t know, maybe 145%")).toBe(false);
     expect(knowledgeAnswerMatches(gaza, "52,243 people")).toBe(true);
     expect(knowledgeAnswerMatches(gaza, "1,052,243 people")).toBe(false);
   });

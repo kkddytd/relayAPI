@@ -266,6 +266,9 @@ export const zh: I18nMessages = {
   checkKnowledgeBatch: "批次",
   checkKnowledgeSource: "题库版本",
   checkKnowledgeBoundaryAbstained: "全部明确表示不知道，符合 Fable 知识边界，不作错误扣分",
+  checkGptTokenName: "GPT 5.6 Token 用量",
+  checkGptTokenWithinThreshold: "Token 使用量在官网阈值内",
+  checkGptTokenPenalty: "Token 超出官网阈值，扣 {points} 分",
   checkPass: "通过",
   checkFail: "失败",
 
@@ -331,6 +334,8 @@ export const zh: I18nMessages = {
   cachePartial: "检测未完整，已取得部分缓存证据",
   cacheUnconfirmed: "五轮完成，预热轮次证据不足或未持续读取",
   cacheUnobserved: "五轮完成，上游未返回缓存 usage 字段",
+  cacheNoMetering: "五轮完成，但未观察到 input、output 或缓存 Token 计量字段",
+  cacheMeteringIncomplete: "五轮完成，但部分轮次缺少 Token 计量字段，已停止计算顶层实测指标",
   cacheFailed: "缓存检测请求失败",
   cacheRounds: "检测轮数",
   cacheCompletedRounds: "已完成逻辑轮次",

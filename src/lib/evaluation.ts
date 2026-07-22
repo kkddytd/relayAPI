@@ -1,4 +1,9 @@
 import { resolveModelProfileId } from "@/lib/models";
+import { evaluationDateKey, evaluationSuiteSeed } from "../../shared/evaluation-context.mjs";
+import {
+  officialGpt56QuestionBank,
+  selectOfficialGpt56Questions,
+} from "../../shared/official-gpt-questions.mjs";
 
 export type EvaluationTier = "frontier" | "balanced" | "advanced";
 export type EvaluationDimension = "reasoning" | "coding" | "instruction" | "chinese";
@@ -29,7 +34,12 @@ export interface EvaluationProfile {
   tier: EvaluationTier;
   authenticityStrategy: AuthenticityStrategy;
   probeFamily: ProbeFamily;
-  knowledgeSet: "spring-2025" | "late-2025" | "official-gpt-april-2025";
+  knowledgeSet:
+    | "spring-2025"
+    | "late-2025"
+    | "official-gpt-april-2025"
+    | "official-gpt56-january-2026-sol"
+    | "official-gpt56-january-2026-terra";
   knowledgeCount: number;
   knowledgeRequired: number;
   capabilityPassScore: number;
@@ -167,6 +177,16 @@ const OFFICIAL_GPT_QUESTION_META: Record<string, {
   },
 };
 
+for (const profileModel of ["gpt-5.6-sol", "gpt-5.6-terra"]) {
+  for (const question of officialGpt56QuestionBank(profileModel)) {
+    OFFICIAL_GPT_QUESTION_META[question.id] = {
+      category: question.category,
+      question: question.question,
+      promptHint: question.promptHint,
+    };
+  }
+}
+
 export function createGptQuizPrompt(questions: readonly KnowledgeQuestion[]): string {
   const officialQuestions = questions
     .map((question) => ({ question, meta: OFFICIAL_GPT_QUESTION_META[question.id] }))
@@ -261,9 +281,9 @@ const MODEL_PROFILES: Record<string, EvaluationProfile> = {
     tier: "frontier",
     authenticityStrategy: "gpt",
     probeFamily: "gpt",
-    knowledgeSet: "official-gpt-april-2025",
+    knowledgeSet: "official-gpt56-january-2026-sol",
     knowledgeCount: 5,
-    knowledgeRequired: 3,
+    knowledgeRequired: 1,
     capabilityPassScore: 80,
     capabilityWeights: CAPABILITY_WEIGHTS.gpt,
     cacheSupported: false,
@@ -273,9 +293,9 @@ const MODEL_PROFILES: Record<string, EvaluationProfile> = {
     tier: "balanced",
     authenticityStrategy: "gpt",
     probeFamily: "gpt",
-    knowledgeSet: "official-gpt-april-2025",
+    knowledgeSet: "official-gpt56-january-2026-terra",
     knowledgeCount: 5,
-    knowledgeRequired: 3,
+    knowledgeRequired: 1,
     capabilityPassScore: 70,
     capabilityWeights: CAPABILITY_WEIGHTS.gpt,
     cacheSupported: false,
@@ -542,6 +562,8 @@ const DEFAULT_PROFILE: EvaluationProfile = {
 };
 
 const KNOWLEDGE_BANKS: Record<EvaluationProfile["knowledgeSet"], readonly KnowledgeQuestion[]> = {
+  "official-gpt56-january-2026-sol": officialGpt56QuestionBank("gpt-5.6-sol"),
+  "official-gpt56-january-2026-terra": officialGpt56QuestionBank("gpt-5.6-terra"),
   "official-gpt-april-2025": [
     {
       id: "liaoyang-restaurant-fire-2025-04-29",
@@ -804,10 +826,7 @@ function hashString(value: string): number {
 }
 
 export function getKnowledgeBatchDate(date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return evaluationDateKey(date);
 }
 
 function createKnowledgeBatch(
@@ -824,6 +843,23 @@ function createKnowledgeBatch(
       questions: [],
       date: dateKey,
       id: `${knowledgeSet}:${dateKey}:none`,
+    };
+  }
+
+  const gpt56Profile = knowledgeSet === "official-gpt56-january-2026-sol"
+    ? "gpt-5.6-sol"
+    : knowledgeSet === "official-gpt56-january-2026-terra"
+      ? "gpt-5.6-terra"
+      : null;
+  if (gpt56Profile) {
+    const rng = selectionMode === "official-random" && randomizer
+      ? randomizer
+      : createRng(evaluationSuiteSeed(gpt56Profile, date));
+    const questions = [...selectOfficialGpt56Questions(gpt56Profile, rng)];
+    return {
+      questions,
+      date: dateKey,
+      id: `${knowledgeSet}:${dateKey}:${selectionMode}:${questions.map((question) => question.id).join(",")}`,
     };
   }
 
@@ -979,9 +1015,11 @@ function buildChineseTask(rng: () => number, tier: EvaluationTier) {
 function normalizeAnswer(value: unknown): string {
   return String(value ?? "")
     .normalize("NFKC")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .replace(/^['"`]+|['"`]+$/g, "")
-    .replace(/[.,!?;:()[\]{}'"`·]/g, " ")
+    .replace(/[.,!?;:()[\]{}'"`·‘’]/g, " ")
     .replace(/\s+/g, " ")
     .toLowerCase();
 }
@@ -1204,16 +1242,7 @@ export function getEvaluationTier(modelId: string): EvaluationTier {
 
 /** Keep generated capability probes stable for the same model on one day. */
 export function createEvaluationSeed(modelId: string, evaluationDate = new Date()): number {
-  const date = [evaluationDate.getFullYear(), evaluationDate.getMonth() + 1, evaluationDate.getDate()]
-    .map((part) => String(part).padStart(2, "0"))
-    .join("-");
-  const value = `${modelId.trim().toLowerCase()}|${date}`;
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
+  return evaluationSuiteSeed(modelId, evaluationDate);
 }
 
 export function createEvaluationSuite(

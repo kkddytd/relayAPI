@@ -11,6 +11,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
       HOST: 0.0.0.0
       PORT: 6722
       DATA_DIR: /app/data
@@ -18,6 +19,7 @@ services:
       INSTALL_TRACKER_PORT: 6723
       INSTALL_TRACKER_DATA_DIR: /app/data/install-tracker
       INSTALL_TRACKER_TIME_ZONE: ${INSTALL_TRACKER_TIME_ZONE:-Asia/Shanghai}
+      INSTALL_REPORT_TRUST_PRIVATE_PROXY: ${INSTALL_REPORT_TRUST_PRIVATE_PROXY:-true}
       INSTALL_TRACKER_TRUST_PROXY: ${INSTALL_TRACKER_TRUST_PROXY:-true}
       DETECTOR_API_KEYS: ${DETECTOR_API_KEYS:-}
       HISTORY_ENCRYPTION_KEY: ${HISTORY_ENCRYPTION_KEY:-VaHJ60Zvd+szpeL+fHCDHKcuml3ha7NtBJ750ukG4T8=}

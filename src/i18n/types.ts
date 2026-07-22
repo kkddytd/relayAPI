@@ -264,6 +264,9 @@ export interface I18nMessages {
   checkKnowledgeBatch: string;
   checkKnowledgeSource: string;
   checkKnowledgeBoundaryAbstained: string;
+  checkGptTokenName: string;
+  checkGptTokenWithinThreshold: string;
+  checkGptTokenPenalty: string;
   checkPass: string;
   checkFail: string;
 
@@ -329,6 +332,8 @@ export interface I18nMessages {
   cachePartial: string;
   cacheUnconfirmed: string;
   cacheUnobserved: string;
+  cacheNoMetering: string;
+  cacheMeteringIncomplete: string;
   cacheFailed: string;
   cacheRounds: string;
   cacheCompletedRounds: string;

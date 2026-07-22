@@ -8,13 +8,25 @@ import {
   OFFICIAL_SCORING_REFERENCE,
   classifyClaudeFamily,
   expectedClaudeFamily,
+  normalizeOpenAiTokenUsage,
   officialPassThreshold,
   scoreClaudeCompatibility,
   scoreGeminiCompatibility,
   scoreGptCompatibility,
 } from "../shared/official-scoring.mjs";
+import { evaluationDateKey, evaluationSuiteSeed } from "../shared/evaluation-context.mjs";
+import { selectOfficialGpt56Questions } from "../shared/official-gpt-questions.mjs";
+import {
+  buildOpenAiChatProbeBody,
+  buildOpenAiResponsesProbeBody,
+} from "../shared/openai-probe-request.mjs";
+import {
+  DEFAULT_CACHE_ROUND_DELAY_MS,
+  DEFAULT_DETECTION_PHASE_DELAY_MS,
+  retryDelayMs,
+} from "../shared/request-pacing.mjs";
 
-export const DETECTION_API_VERSION = "2026-07-17.3";
+export const DETECTION_API_VERSION = "2026-07-22.2";
 const CACHE_LOGICAL_ROUNDS = 5;
 const MAX_CACHE_VALIDATION_RUNS = 3;
 let cacheRunSequence = cryptoRandomInt(36 ** 3);
@@ -289,15 +301,37 @@ function cleanText(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .replace(/^['"`]+|['"`]+$/g, "")
-    .replace(/[.,!?;:()[\]{}'"`·]/g, " ")
+    .replace(/[.,!?;:()[\]{}'"`·‘’]/g, " ")
     .replace(/\s+/g, " ")
     .toLowerCase();
 }
 
 function isAbstention(value) {
   const normalized = cleanText(value);
-  return /^(?:i do not know|i don t know|unknown|not sure|cannot tell|can t tell|不知道|不清楚|不确定|无法确定|无法回答|无法获知)$/.test(normalized) ||
-    /(?:cannot|can t|unable to|not able to|无法|不能|拒绝).*(?:answer|tell|provide|help|comply|discuss|回答|提供|帮助|遵从|讨论)/i.test(normalized);
+  return [
+    /不知道/i,
+    /不清楚/i,
+    /不确定/i,
+    /无法确定/i,
+    /无法回答/i,
+    /i\s*don\s*t\s*know/i,
+    /not\s*sure/i,
+    /can\s*t\s*tell/i,
+    /cannot\s+discuss/i,
+    /can\s*t\s+discuss/i,
+    /cannot\s+provide/i,
+    /can\s*t\s+provide/i,
+    /cannot\s+help/i,
+    /can\s*t\s+help/i,
+    /cannot\s+comply/i,
+    /unable\s+to\s+comply/i,
+    /无法讨论/i,
+    /不能讨论/i,
+    /无法提供/i,
+    /拒绝回答/i,
+    /cannot\s+answer/i,
+    /can\s*t\s+answer/i,
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function answerMatches(question, value) {
@@ -414,9 +448,7 @@ function deterministicNumber(seed, min, max) {
 }
 
 function localDateKey(date = new Date()) {
-  return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
-    .map((part) => String(part).padStart(2, "0"))
-    .join("-");
+  return evaluationDateKey(date);
 }
 
 function dailyQuestions(model, date, secret, count, bank = KNOWLEDGE_BANK, version = "knowledge-v2", offset = 0) {
@@ -545,6 +577,8 @@ export function resolveDetectionEndpoint(rawBaseUrl, model, requestedProtocol = 
           ? "openai-chat"
           : hasVertexAnthropic
             ? "anthropic"
+            : googleHost && /\/projects\//i.test(pathname) && /^claude-/i.test(inferenceModel)
+              ? "anthropic"
             : isGeminiModel(inferenceModel) || googleHost
               ? "google-generative"
               : isOpenAIModel(inferenceModel) || openAICompatibleHost
@@ -579,7 +613,9 @@ export function resolveDetectionEndpoint(rawBaseUrl, model, requestedProtocol = 
     const existing = pathname.match(/^(.*\/models\/)[^/:]+:(generateContent|streamGenerateContent)$/i);
     if (existing) return { protocol, endpoint: `${parsed.origin}${existing[1]}${encodeURIComponent(model)}:${existing[2]}${query}` };
     if (googleHost && /\/projects\//i.test(pathname)) {
-      const publisherBase = /\/publishers\/[^/]+$/i.test(originAndBase) ? originAndBase : `${originAndBase}/publishers/google`;
+      const publisherBase = /\/publishers\/[^/]+$/i.test(originAndBase)
+        ? originAndBase.replace(/\/publishers\/[^/]+$/i, "/publishers/google")
+        : `${originAndBase}/publishers/google`;
       return { protocol, endpoint: `${publisherBase}/models/${encodeURIComponent(model)}:generateContent${query}` };
     }
     return { protocol, endpoint: `${originAndBase}/v1beta/models/${encodeURIComponent(model)}:generateContent${query}` };
@@ -587,6 +623,12 @@ export function resolveDetectionEndpoint(rawBaseUrl, model, requestedProtocol = 
   if (protocol === "anthropic" && hasVertexAnthropic) {
     const existing = pathname.match(/^(.*\/publishers\/anthropic\/models\/)[^/:]+:(rawPredict|streamRawPredict)$/i);
     return { protocol, endpoint: `${parsed.origin}${existing[1]}${encodeURIComponent(model)}:${existing[2]}${query}` };
+  }
+  if (protocol === "anthropic" && googleHost && /\/projects\//i.test(pathname)) {
+    const publisherBase = /\/publishers\/[^/]+$/i.test(originAndBase)
+      ? originAndBase.replace(/\/publishers\/[^/]+$/i, "/publishers/anthropic")
+      : `${originAndBase}/publishers/anthropic`;
+    return { protocol, endpoint: `${publisherBase}/models/${encodeURIComponent(model)}:rawPredict${query}` };
   }
   return { protocol, endpoint: `${originAndBase}/v1/messages${query}` };
 }
@@ -720,24 +762,23 @@ function requestBody(context, plan) {
     };
   }
   if (context.protocol === "openai-responses") {
-    return {
+    const input = plan.previousUserPrompt
+      ? [
+          { role: "user", content: plan.previousUserPrompt },
+          { role: "assistant", content: String(plan.previousAssistantText ?? "") },
+          { role: "user", content: plan.prompt },
+        ]
+      : [{ role: "user", content: plan.prompt }];
+    return buildOpenAiResponsesProbeBody({
       model: context.model,
-      input: plan.previousUserPrompt
-        ? [
-            { role: "user", content: plan.previousUserPrompt },
-            { role: "assistant", content: String(plan.previousAssistantText ?? "") },
-            { role: "user", content: plan.prompt },
-          ]
-        : plan.prompt,
-      max_output_tokens: plan.maxTokens ?? 10240,
-      store: false,
-    };
+      messages: input,
+      maxOutputTokens: plan.maxTokens ?? 10240,
+    });
   }
   if (context.protocol === "openai-images") {
     return { model: context.model, prompt: plan.prompt, size: "1024x1024", n: 1 };
   }
-  const reasoning = /^(?:gpt-5|o[1-9](?:$|[-.]))/i.test(context.model);
-  return {
+  return buildOpenAiChatProbeBody({
     model: context.model,
     messages: plan.previousUserPrompt
       ? [
@@ -746,11 +787,8 @@ function requestBody(context, plan) {
           { role: "user", content: plan.prompt },
         ]
       : [{ role: "user", content: plan.prompt }],
-    max_completion_tokens: plan.maxTokens ?? 10240,
-    stream: true,
-    stream_options: { include_usage: true },
-    ...(!reasoning ? { temperature: 0 } : {}),
-  };
+    maxOutputTokens: plan.maxTokens ?? 10240,
+  });
 }
 
 export function extractText(payload, protocol) {
@@ -876,6 +914,14 @@ function usageNumber(usage, candidates) {
   return 0;
 }
 
+function usageField(usage, candidates) {
+  for (const key of candidates) {
+    const value = usage?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) return key;
+  }
+  return null;
+}
+
 function parseRelayProbe(relay, protocol, plan) {
   const upstreamStatus = typeof relay?.status === "number" ? relay.status : 0;
   let payload = null;
@@ -890,9 +936,35 @@ function parseRelayProbe(relay, protocol, plan) {
   // hints score missing fields instead of converting it to an unavailable run.
   const parseOk = Boolean(payload && typeof payload === "object");
   const text = jsonParseOk ? extractText(payload, protocol) : "";
-  const usage = relay?.usage && typeof relay.usage === "object" ? relay.usage : payload?.usage ?? payload?.usageMetadata ?? {};
-  const inputTokens = usageNumber(usage, ["input_tokens", "prompt_tokens", "promptTokenCount"]);
-  const outputTokens = usageNumber(usage, ["output_tokens", "completion_tokens", "candidatesTokenCount"]);
+  const relayUsage = relay?.usage && typeof relay.usage === "object" ? relay.usage : null;
+  const payloadUsage = payload?.usage ?? payload?.usageMetadata ?? null;
+  const usage = {
+    ...(payloadUsage && typeof payloadUsage === "object" ? payloadUsage : {}),
+    ...(relayUsage && typeof relayUsage === "object" ? relayUsage : {}),
+  };
+  const openAiUsage = protocol === "openai-chat" || protocol === "openai-responses"
+    ? normalizeOpenAiTokenUsage(
+        payloadUsage,
+        relayUsage,
+        {
+          cache_read_input_tokens: relay?.cacheReadInputTokens,
+          cache_creation_input_tokens: relay?.cacheCreationInputTokens,
+        },
+        relay,
+      )
+    : null;
+  const inputTokens = openAiUsage?.inputTokens ?? usageNumber(usage, ["input_tokens", "prompt_tokens", "promptTokenCount"]);
+  const outputTokens = openAiUsage?.outputTokens ?? usageNumber(usage, ["output_tokens", "completion_tokens", "candidatesTokenCount"]);
+  const inputUsageField = usageField(usage, ["input_tokens", "prompt_tokens", "promptTokenCount"]);
+  const outputUsageField = usageField(usage, ["output_tokens", "completion_tokens", "candidatesTokenCount"]);
+  const providerErrorEnvelope = Boolean(
+    payload && typeof payload === "object" && (payload.type === "error" || payload.error),
+  );
+  const usageEvidenceFields = [
+    inputUsageField,
+    outputUsageField,
+    ...(Array.isArray(relay?.cacheEvidenceFields) ? relay.cacheEvidenceFields : []),
+  ].filter((value) => typeof value === "string");
   const reportedModel = typeof payload?.model === "string"
     ? payload.model
     : typeof payload?.modelVersion === "string"
@@ -915,11 +987,13 @@ function parseRelayProbe(relay, protocol, plan) {
     latencyMs: typeof relay?.latencyMs === "number" ? relay.latencyMs : 0,
     inputTokens,
     outputTokens,
-    cacheReadTokens: typeof relay?.cacheReadInputTokens === "number" ? relay.cacheReadInputTokens : 0,
-    cacheWriteTokens: typeof relay?.cacheCreationInputTokens === "number" ? relay.cacheCreationInputTokens : 0,
+    cacheReadTokens: openAiUsage?.cacheReadTokens ?? (typeof relay?.cacheReadInputTokens === "number" ? relay.cacheReadInputTokens : 0),
+    cacheWriteTokens: openAiUsage?.cacheWriteTokens ?? (typeof relay?.cacheCreationInputTokens === "number" ? relay.cacheCreationInputTokens : 0),
     cacheEvidenceFields: Array.isArray(relay?.cacheEvidenceFields)
       ? relay.cacheEvidenceFields.filter((value) => typeof value === "string")
       : [],
+    usageEvidenceFields: [...new Set(usageEvidenceFields)],
+    usageMeteringComplete: Boolean(inputUsageField && outputUsageField),
     signatureVerdict: typeof relay?.signatureVerdict === "string" ? relay.signatureVerdict.toUpperCase() : "UNKNOWN",
     signatureCompatibilityVerdict: typeof relay?.signatureCompatibilityVerdict === "string"
       ? relay.signatureCompatibilityVerdict.toUpperCase()
@@ -984,7 +1058,9 @@ function parseRelayProbe(relay, protocol, plan) {
       : [],
     finalUrl: typeof relay?.finalUpstreamUrl === "string" ? relay.finalUpstreamUrl : null,
     responseHeaders: relay?.responseHeaders && typeof relay.responseHeaders === "object" ? relay.responseHeaders : {},
-    error: !parseOk ? extractError(payload, upstreamStatus) : null,
+    error: upstreamStatus < 200 || upstreamStatus >= 300 || !parseOk || providerErrorEnvelope
+      ? extractError(payload, upstreamStatus)
+      : null,
   };
 }
 
@@ -1215,13 +1291,7 @@ function buildQualityChineseTask(rng, tier) {
 
 function buildQualityCapabilityPlans(context, roundIndex, seedSecret) {
   const profile = qualityProfileSpec(context);
-  const seed = Number.parseInt(
-    createHmac("sha256", seedSecret || "quality-suite")
-      .update(`quality-suite-v1|${context.profileModel || context.model}|${localDateKey()}|${roundIndex}`)
-      .digest("hex")
-      .slice(0, 8),
-    16,
-  );
+  const seed = evaluationSuiteSeed(context.profileModel || context.model, localDateKey(), roundIndex);
   const rng = createQualityRng(seed);
   const reasoning = buildQualityLogicTask(rng, profile.tier);
   const coding = buildQualityCodingTask(rng, profile.tier);
@@ -1310,13 +1380,21 @@ function corePlans(context, roundIndex, seedSecret) {
   };
 
   if (probeFamily === "gpt-official") {
-    const questions = selectQuestions(context, date, seedSecret, 5, OFFICIAL_GPT_KNOWLEDGE_BANK, "official-gpt-april-2025", roundIndex * 5);
+    const gpt56 = context.profileModel === "gpt-5.6-sol" || context.profileModel === "gpt-5.6-terra";
+    const questions = gpt56
+      ? [...selectOfficialGpt56Questions(
+          context.profileModel,
+          context.questionMode === "official-random"
+            ? Math.random
+            : createQualityRng(evaluationSuiteSeed(context.profileModel, date, roundIndex)),
+        )]
+      : selectQuestions(context, date, seedSecret, 5, OFFICIAL_GPT_KNOWLEDGE_BANK, "official-gpt-april-2025", roundIndex * 5);
     return [{
       id: "knowledge",
       stage: context.profileModel === "gpt-5.6-sol" || context.profileModel === "gpt-5.6-terra" ? "gpt56-quiz" : "gpt54-quiz",
       prompt: gptKnowledgePrompt(questions),
       questions,
-      required: 3,
+      required: gpt56 ? 1 : 3,
       maxTokens: 10240,
       mandatory: true,
     }];
@@ -1576,7 +1654,7 @@ function normalizeQualityAnswer(value) {
     .normalize("NFKC")
     .trim()
     .replace(/^['"`]+|['"`]+$/g, "")
-    .replace(/[.,!?;:()[\]{}'"`·]/g, " ")
+    .replace(/[.,!?;:()[\]{}'"`·‘’]/g, " ")
     .replace(/\s+/g, " ")
     .toLowerCase();
 }
@@ -1756,6 +1834,12 @@ function assessRound(context, plans, probes) {
       quizStatus,
       protocolStatus: preliminaryProtocolStatus,
       responseStructureStatus: structureStatus,
+      tokenUsage: {
+        inputTokens: probe?.inputTokens,
+        outputTokens: probe?.outputTokens,
+        cacheReadTokens: probe?.cacheReadTokens,
+        cacheWriteTokens: probe?.cacheWriteTokens,
+      },
     });
     const official = preliminaryOfficial.mismatch === true
       ? scoreGptCompatibility({
@@ -1764,6 +1848,12 @@ function assessRound(context, plans, probes) {
           quizStatus,
           protocolStatus: "fail",
           responseStructureStatus: structureStatus,
+          tokenUsage: {
+            inputTokens: probe?.inputTokens,
+            outputTokens: probe?.outputTokens,
+            cacheReadTokens: probe?.cacheReadTokens,
+            cacheWriteTokens: probe?.cacheWriteTokens,
+          },
         })
       : preliminaryOfficial;
     const scoredProtocolStatus = official.mismatch === true ? "fail" : preliminaryProtocolStatus;
@@ -1788,6 +1878,18 @@ function assessRound(context, plans, probes) {
       }),
       check("protocol", "behavior", scoredProtocolStatus, scoredProtocolStatus === "pass" ? "OpenAI protocol observed" : "Protocol or model variant did not match the public verifier"),
       check("response_structure", "behavior", structureStatus, structureStatus === "pass" ? "JSON and protocol fields are complete" : "Response structure is partial or invalid"),
+      ...(official.tokenPenalty?.applicable ? [check(
+        "token_usage",
+        "behavior",
+        official.tokenPenalty.total > 0 ? "warning" : "pass",
+        official.tokenPenalty.total > 0
+          ? `${official.tokenPenalty.total} points deducted for token usage above the public GPT 5.6 thresholds`
+          : "Token usage stayed within the public GPT 5.6 thresholds",
+        {
+          thresholds: { input: 2000, output: 2000, cache_read: 1000, cache_write: 1000 },
+          penalty: official.tokenPenalty,
+        },
+      )] : []),
     ]);
     return {
       qualityScore: unavailable ? null : capability,
@@ -2447,7 +2549,7 @@ function cacheRequestBody(context, runAt, roundIndex, priorTurns, requestProfile
   };
 }
 
-async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfile = "custom") {
+async function runCacheCheck(context, probe, roundDelayMs = DEFAULT_CACHE_ROUND_DELAY_MS, requestedProfile = "custom") {
   if (!CACHE_OBSERVATION_PROFILES.has(context.profileModel)) {
     return {
       requested: true,
@@ -2492,19 +2594,10 @@ async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfi
     const request = cacheRequestBody(context, runAt, index, priorTurns, requestProfile);
     const plan = { id: `cache_${index + 1}`, prompt: request.prompt, maxTokens: 40960 };
     const stage = `cachecheck-r${index}`;
-    requestAttempts += 1;
-    let relay = await invokeProbe(context, probe, {
-      stage,
-      mode: context.protocol,
-      endpoint: context.endpoint,
-      method: "POST",
-      headers: cacheRequestHeaders(context, requestProfile),
-      body: request.body,
-    });
-    let parsed = parseRelayProbe(relay, context.protocol, plan);
-    if (parsed.status >= 500 && parsed.status < 600) {
+    let parsed;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       requestAttempts += 1;
-      relay = await invokeProbe(context, probe, {
+      const relay = await invokeProbe(context, probe, {
         stage,
         mode: context.protocol,
         endpoint: context.endpoint,
@@ -2513,26 +2606,47 @@ async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfi
         body: request.body,
       });
       parsed = parseRelayProbe(relay, context.protocol, plan);
+      const successfulShape = parsed.status >= 200 && parsed.status < 300 && parsed.parseOk && protocolShape(parsed.payload, parsed.protocol);
+      const retryable = parsed.status <= 0 || parsed.status === 429 ||
+        (parsed.status >= 500 && parsed.status < 600) ||
+        (parsed.status >= 200 && parsed.status < 300 && !successfulShape);
+      if (!retryable || attempt === 1) break;
+      const retryWait = retryDelayMs(parsed.status, parsed.responseHeaders, { fallbackMs: roundDelayMs }) || roundDelayMs;
+      await abortableDelay(retryWait, context.signal);
     }
+    const roundParseOk = parsed.status >= 200 && parsed.status < 300 && parsed.parseOk && protocolShape(parsed.payload, parsed.protocol);
+    const providerErrorEnvelope = Boolean(
+      parsed.payload && typeof parsed.payload === "object" &&
+      (parsed.payload.type === "error" || parsed.payload.error),
+    );
     const round = {
       round: index + 1,
       status: parsed.status,
-      parse_ok: parsed.status >= 200 && parsed.status < 300 && parsed.parseOk && protocolShape(parsed.payload, parsed.protocol),
+      parse_ok: roundParseOk,
       input_tokens: parsed.inputTokens,
       output_tokens: parsed.outputTokens,
       cache_read_tokens: parsed.cacheReadTokens,
       cache_write_tokens: parsed.cacheWriteTokens,
       cache_evidence_fields: parsed.cacheEvidenceFields,
       cache_evidence_observed: parsed.cacheEvidenceFields.length > 0,
+      metering_evidence_fields: parsed.usageEvidenceFields,
+      metering_observed: parsed.usageEvidenceFields.length > 0,
+      metering_complete: parsed.usageMeteringComplete,
       hit: parsed.cacheEvidenceFields.length > 0 && parsed.cacheReadTokens > 0,
       hit_rate: null,
       latency_ms: parsed.latencyMs,
-      weighted_tokens: 0,
-      error: parsed.error,
+      weighted_tokens: null,
+      error: roundParseOk
+        ? null
+        : parsed.status >= 200 && parsed.status < 300 && !providerErrorEnvelope
+          ? parsed.jsonParseOk ? "invalid_protocol_response" : "invalid_json_response"
+          : parsed.error ?? "upstream_request_failed",
     };
     const hitRate = cacheHitPercent(round);
     round.hit_rate = hitRate === null ? null : Number(hitRate.toFixed(1));
-    round.weighted_tokens = Number(cacheWeightedTokens(round).toFixed(2));
+    round.weighted_tokens = round.metering_complete
+      ? Number(cacheWeightedTokens(round).toFixed(2))
+      : null;
     rounds.push(round);
     if (!round.parse_ok) break;
     priorTurns.push({ prompt: request.prompt, responseText: parsed.text || "(empty reply)" });
@@ -2542,9 +2656,10 @@ async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfi
   }
 
   const completed = rounds.length === CACHE_LOGICAL_ROUNDS && rounds.every((round) => round.parse_ok);
-  // Canonical profiles retain the public comparison arithmetic even when a
-  // relay hides cache usage fields. The observation itself remains unobserved
-  // (rather than a miss), and the explicit assumption is returned below.
+  const meteringObserved = rounds.some((round) => round.metering_observed);
+  const meteringComplete = completed && rounds.every((round) => round.metering_complete);
+  // Keep the canonical reference visible, but only derive measured comparison
+  // values for rounds with complete input/output token metering.
   const canCompare = completed && comparable;
   const comparedRounds = rounds.map((round, index) => {
     const baseline = canCompare ? reference.rounds[Math.min(index, reference.rounds.length - 1)] : null;
@@ -2559,15 +2674,15 @@ async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfi
       ...round,
       baseline: { ...baseline },
       baseline_weighted_tokens: Number(baselineWeighted.toFixed(2)),
-      multiplier: baselineWeighted > 0 ? Number((round.weighted_tokens / baselineWeighted).toFixed(3)) : null,
-      input_delta_percent: cacheDelta(round.input_tokens, baseline.input),
-      output_delta_percent: round.output_tokens <= baseline.output * 2 ? null : cacheDelta(round.output_tokens, baseline.output),
-      cache_write_delta_percent: cacheDelta(round.cache_write_tokens, baseline.cache_creation),
-      cache_read_delta_percent: cacheDelta(round.cache_read_tokens, baseline.cache_read),
+      multiplier: round.metering_complete && baselineWeighted > 0 ? Number((round.weighted_tokens / baselineWeighted).toFixed(3)) : null,
+      input_delta_percent: round.metering_complete ? cacheDelta(round.input_tokens, baseline.input) : null,
+      output_delta_percent: round.metering_complete && round.output_tokens > baseline.output * 2 ? cacheDelta(round.output_tokens, baseline.output) : null,
+      cache_write_delta_percent: round.metering_complete ? cacheDelta(round.cache_write_tokens, baseline.cache_creation) : null,
+      cache_read_delta_percent: round.metering_complete ? cacheDelta(round.cache_read_tokens, baseline.cache_read) : null,
     };
   }).map((round) => ({
     ...round,
-    assessment: cacheRoundAssessment(round.multiplier ?? null),
+    assessment: cacheRoundAssessment(round.metering_complete ? round.multiplier ?? null : null),
   }));
   const warm = comparedRounds.slice(1);
   const warmEvidence = warm.filter((round) => round.cache_evidence_observed && typeof round.hit_rate === "number");
@@ -2585,7 +2700,9 @@ async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfi
   const weightedWarmTokenHitRate = warmTokenDenominator > 0
     ? Number(((warmEvidence.reduce((sum, round) => sum + round.cache_read_tokens, 0) / warmTokenDenominator) * 100).toFixed(1))
     : null;
-  const measuredWeightedTokens = Number(comparedRounds.reduce((sum, round) => sum + round.weighted_tokens, 0).toFixed(2));
+  const measuredWeightedTokens = meteringComplete
+    ? Number(comparedRounds.reduce((sum, round) => sum + round.weighted_tokens, 0).toFixed(2))
+    : null;
   const baselineWeightedTokens = canCompare
     ? Number(reference.rounds.reduce((sum, baseline) => sum + cacheWeightedTokens({
         input_tokens: baseline.input,
@@ -2604,19 +2721,21 @@ async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfi
   const baselineHitRate = baselineWarmHitRates.length > 0
     ? baselineWarmHitRates.reduce((sum, value) => sum + value, 0) / baselineWarmHitRates.length
     : null;
-  const overallMultiplier = baselineWeightedTokens && baselineWeightedTokens > 0
+  const overallMultiplier = measuredWeightedTokens !== null && baselineWeightedTokens && baselineWeightedTokens > 0
     ? Number((measuredWeightedTokens / baselineWeightedTokens).toFixed(3))
     : null;
   // A partial set of usage fields can make a single warm hit look like 100%.
   // Only compare a measured hit rate once all four warm rounds expose usage.
   // The archived public zero-read assumption remains limited to relays that
   // expose no warm usage fields at all.
-  const comparisonHitRate = fullWarmEvidence
+  const comparisonHitRate = !meteringComplete
+    ? null
+    : fullWarmEvidence
     ? averageHitRate
     : canCompare && observedWarmRounds === 0
       ? 0
       : null;
-  const compatibilityScore = canCompare && measuredWeightedTokens > 0 && baselineWeightedTokens > 0 && comparisonHitRate !== null && baselineHitRate > 0
+  const compatibilityScore = canCompare && measuredWeightedTokens !== null && measuredWeightedTokens > 0 && baselineWeightedTokens > 0 && comparisonHitRate !== null && baselineHitRate > 0
     ? Math.min(100, Math.max(0, Math.round(Math.min(
         baselineWeightedTokens / measuredWeightedTokens,
         comparisonHitRate / baselineHitRate / 0.98,
@@ -2641,7 +2760,7 @@ async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfi
       : CACHE_CUSTOM_TEMPLATE.version,
     request_template_comparable: true,
     comparison: canCompare ? "compared" : reference.rounds ? "reference-only" : "none",
-    comparison_assumption: canCompare && observedWarmRounds === 0 ? "missing_usage_treated_as_zero" : null,
+    comparison_assumption: canCompare && meteringComplete && observedWarmRounds === 0 ? "missing_usage_treated_as_zero" : null,
     baseline: {
       model: reference.model,
       source: reference.source,
@@ -2662,14 +2781,17 @@ async function runCacheCheck(context, probe, roundDelayMs = 1200, requestedProfi
     request_profiles_used: [requestProfile],
     required_warm_rounds: CACHE_LOGICAL_ROUNDS - 1,
     cache_evidence_observed: rounds.some((round) => round.cache_evidence_observed),
+    metering_observed: meteringObserved,
+    metering_complete: meteringComplete,
+    metering_evidence_fields: [...new Set(comparedRounds.flatMap((round) => round.metering_evidence_fields ?? []))],
     observed_warm_rounds: observedWarmRounds,
     warm_rounds_with_hit_percent: observedWarmRounds > 0 && requiredWarmRounds > 0
       ? Math.round((warm.filter((round) => round.hit).length / requiredWarmRounds) * 100)
       : null,
     mean_warm_token_hit_rate: averageHitRate,
     weighted_warm_token_hit_rate: weightedWarmTokenHitRate,
-    total_cache_read_tokens: comparedRounds.reduce((sum, round) => sum + round.cache_read_tokens, 0),
-    total_cache_write_tokens: comparedRounds.reduce((sum, round) => sum + round.cache_write_tokens, 0),
+    total_cache_read_tokens: meteringComplete ? comparedRounds.reduce((sum, round) => sum + round.cache_read_tokens, 0) : null,
+    total_cache_write_tokens: meteringComplete ? comparedRounds.reduce((sum, round) => sum + round.cache_write_tokens, 0) : null,
     evidence_fields: [...new Set(comparedRounds.flatMap((round) => round.cache_evidence_fields))],
     failure_detail: comparedRounds.find((round) => !round.parse_ok)?.error ?? null,
   };
@@ -2759,6 +2881,7 @@ function aggregateCacheRuns(runReports, requestedRuns) {
             : "failed";
   const requestProfilesUsed = [...new Set(reports.flatMap((report) => report.request_profiles_used ?? []))];
   const evidenceFields = [...new Set(reports.flatMap((report) => report.evidence_fields ?? []))];
+  const meteringEvidenceFields = [...new Set(reports.flatMap((report) => report.metering_evidence_fields ?? []))];
   const comparisonAssumptions = reports
     .map((report) => report.comparison_assumption)
     .filter((value) => typeof value === "string");
@@ -2802,6 +2925,9 @@ function aggregateCacheRuns(runReports, requestedRuns) {
       ? "missing_usage_treated_as_zero"
       : null,
     cache_evidence_observed: reports.some((report) => report.cache_evidence_observed),
+    metering_observed: reports.some((report) => report.metering_observed),
+    metering_complete: allRunsCompleted && reports.every((report) => report.metering_complete === true),
+    metering_evidence_fields: meteringEvidenceFields,
     evidence_fields: evidenceFields,
     failure_detail: allRunsCompleted
       ? null
@@ -2810,7 +2936,7 @@ function aggregateCacheRuns(runReports, requestedRuns) {
   };
 }
 
-async function runCacheValidation(context, probe, requestedRuns = 1, roundDelayMs = 1200) {
+async function runCacheValidation(context, probe, requestedRuns = 1, roundDelayMs = DEFAULT_CACHE_ROUND_DELAY_MS) {
   const runReports = [];
   for (let run = 0; run < requestedRuns; run += 1) {
     let report = await runCacheCheck(context, probe, roundDelayMs);
@@ -3108,7 +3234,7 @@ export async function runModelDetection(input, dependencies) {
       if (successfulProbe(medium) && /OK/i.test(medium.text)) {
         const minimal = await executePlan(context, plans[1], dependencies.probe);
         probes.push(minimal);
-        if (!geminiMinimalExpectedError(minimal) && successfulProbe(minimal)) {
+        if (!geminiMinimalExpectedError(minimal) && minimal.status >= 200 && minimal.status < 300) {
           probes.push(await executePlan(context, plans[2], dependencies.probe));
         }
       }
@@ -3203,11 +3329,15 @@ export async function runModelDetection(input, dependencies) {
   // without upstream cache calls, while supported profiles still run after an
   // incomplete core suite because that operational evidence is useful.
   if (input.checks.cache) {
+    const cacheWillCallUpstream = CACHE_OBSERVATION_PROFILES.has(context.profileModel) && context.protocol === "anthropic";
+    if (cacheWillCallUpstream && allProbes.length > 0) {
+      await abortableDelay(dependencies.phaseDelayMs ?? DEFAULT_DETECTION_PHASE_DELAY_MS, context.signal);
+    }
     cache = await runCacheValidation(
       context,
       dependencies.probe,
       input.cacheRuns ?? 1,
-      dependencies.cacheRoundDelayMs ?? 1200,
+      dependencies.cacheRoundDelayMs ?? DEFAULT_CACHE_ROUND_DELAY_MS,
     );
   }
   let liveKnowledge = { requested: false, status: "not-requested" };
@@ -3222,6 +3352,9 @@ export async function runModelDetection(input, dependencies) {
       };
     } else {
       try {
+        if (allProbes.length > 0 || (cache?.request_attempts ?? 0) > 0) {
+          await abortableDelay(dependencies.phaseDelayMs ?? DEFAULT_DETECTION_PHASE_DELAY_MS, context.signal);
+        }
         liveKnowledge = await runLiveKnowledgeCheck(context, dependencies.probe, dependencies.getLiveKnowledgeSnapshot);
       } catch (error) {
         // Do not turn a caller disconnect into an "unavailable" quality
@@ -3681,7 +3814,7 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
               type: "object",
               additionalProperties: false,
               properties: {
-                cache: { type: "boolean", default: false, description: "Run independent Anthropic prompt-cache observation sequences. Each sequence always contains the public five logical rounds." },
+                cache: { type: "boolean", default: false, description: "Run independent five-round Anthropic cache sequences with default phase and round pacing. A 429 or 503 retry honors Retry-After up to 120 seconds." },
                 cache_runs: { type: "integer", minimum: 1, maximum: MAX_CACHE_VALIDATION_RUNS, default: 1, description: "Number of independent five-round cache sequences. Each sequence uses a distinct run marker. Multiple runs aggregate comparable numeric metrics by median; this value is ignored unless cache is true." },
                 live_knowledge: { type: "boolean", default: false, description: "Send one independent live-access request; excluded from quality and identity scoring." },
               },
@@ -3750,13 +3883,17 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
             },
             scoring_reference: {
               type: "object",
-              required: ["capturedAt", "bundle", "bundleSha256", "probeConstantsBundle", "probeConstantsSha256"],
+              required: ["capturedAt", "bundle", "bundleSha256", "probeConstantsBundle", "probeConstantsSha256", "reasoningBundle", "reasoningBundleSha256", "algorithmRegistryBundle", "algorithmRegistryBundleSha256"],
               properties: {
                 capturedAt: { type: "string", format: "date" },
                 bundle: { type: "string" },
                 bundleSha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
                 probeConstantsBundle: { type: "string" },
                 probeConstantsSha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+                reasoningBundle: { type: "string" },
+                reasoningBundleSha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+                algorithmRegistryBundle: { type: "string" },
+                algorithmRegistryBundleSha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
               },
             },
             verdict: {
@@ -3935,17 +4072,20 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
             warm_rounds_with_hit_percent: { type: ["number", "null"], description: "Percentage of warm rounds with any provider-reported cache read tokens." },
             mean_warm_token_hit_rate: { type: ["number", "null"], description: "Arithmetic mean of per-round warm token hit rates." },
             weighted_warm_token_hit_rate: { type: ["number", "null"], description: "Token-weighted warm cache hit rate." },
-            total_cache_read_tokens: { type: "integer" },
-            total_cache_write_tokens: { type: "integer" },
+            total_cache_read_tokens: { type: ["integer", "null"] },
+            total_cache_write_tokens: { type: ["integer", "null"] },
             evidence_fields: { type: "array", items: { type: "string" } },
             cache_evidence_observed: { type: "boolean", description: "True only when the upstream returned a cache usage field on at least one round." },
+            metering_observed: { type: "boolean", description: "True when at least one round returned an input, output, cache-read, or cache-write token field. False means numeric zeroes are placeholders rather than observed usage." },
+            metering_complete: { type: "boolean", description: "True only when all five logical rounds returned both input and output token metering. Measured aggregate metrics are null when this is false." },
+            metering_evidence_fields: { type: "array", items: { type: "string" } },
             failure_detail: { type: ["string", "null"] },
             runs: { type: "array", minItems: 1, maxItems: MAX_CACHE_VALIDATION_RUNS, description: "Independent single-sequence reports in execution order. Each item has run=1..3 and omits nested runs; use this array for per-sequence five-round details.", items: { $ref: "#/components/schemas/CacheReport" } },
           },
         },
         CacheRound: {
           type: "object",
-          required: ["round", "status", "parse_ok", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cache_evidence_observed", "hit", "hit_rate", "weighted_tokens"],
+          required: ["round", "status", "parse_ok", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cache_evidence_observed", "metering_observed", "metering_complete", "hit", "hit_rate", "weighted_tokens"],
           properties: {
             round: { type: "integer", minimum: 1, maximum: 5 },
             status: { type: "integer" },
@@ -3955,11 +4095,14 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
             cache_read_tokens: { type: "integer" },
             cache_write_tokens: { type: "integer" },
             cache_evidence_fields: { type: "array", items: { type: "string" } },
+            metering_evidence_fields: { type: "array", items: { type: "string" } },
             hit: { type: "boolean" },
             cache_evidence_observed: { type: "boolean" },
+            metering_observed: { type: "boolean" },
+            metering_complete: { type: "boolean", description: "True when this response exposed both input and output token fields." },
             hit_rate: { type: ["number", "null"], description: "Null when this response did not expose cache usage fields." },
             latency_ms: { type: "number" },
-            weighted_tokens: { type: "number" },
+            weighted_tokens: { type: ["number", "null"], description: "Null when this round did not expose complete input/output token metering." },
             baseline: { type: "object", additionalProperties: { type: "number" } },
             baseline_weighted_tokens: { type: ["number", "null"] },
             multiplier: { type: ["number", "null"] },

@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 if ! command -v node >/dev/null 2>&1; then
-  printf '%s\n' "需要 Node.js 20.19 或更高版本，推荐使用 Node.js 22 LTS。" >&2
+  printf '%s\n' "需要 Node.js 20.19+、22.12+ 或更高版本，推荐使用 Node.js 22 LTS。" >&2
   exit 1
 fi
 
@@ -14,8 +14,8 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const supported = (major === 20 && minor >= 19) || major >= 22; if (!supported) process.exit(1)'; then
-  printf '%s\n' "当前 Node.js 版本过低，需要 20.19 或更高版本，推荐使用 Node.js 22 LTS。" >&2
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); const supported = (major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major >= 23; if (!supported) process.exit(1)'; then
+  printf '%s\n' "当前 Node.js 版本不受支持，需要 Node.js 20.19+、22.12+ 或更高版本，推荐使用 Node.js 22 LTS。" >&2
   exit 1
 fi
 
@@ -64,7 +64,6 @@ printf '%s\n' "正在安装项目依赖..."
 npm ci --no-audit --no-fund
 printf '%s\n' "正在构建网页资源..."
 npm run build
-export ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE="${ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE:-true}"
 
 detector_api_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
 effective_port="${PORT:-$(sed -n 's/^PORT=//p' .env 2>/dev/null | head -n 1)}"

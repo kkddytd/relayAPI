@@ -49,6 +49,22 @@ const GPT_KNOWLEDGE_ANSWERS = [
   ["Ras Isa oil terminal", "74 people"],
   ["official total death toll of the Gaza war", "52,243"],
   ["center of Sumy", "At least 35 people"],
+  ["Which country adopted the euro", "Bulgaria"],
+  ["Which currency did Bulgaria adopt", "Euro"],
+  ["Which currency did Bulgaria replace", "Bulgarian lev"],
+  ["Bulgaria became which numbered member", "21st"],
+  ["officially became the capital of Equatorial Guinea", "Ciudad de la Paz"],
+  ["Ciudad de la Paz became the capital of which country", "Equatorial Guinea"],
+  ["Which city did Ciudad de la Paz replace", "Malabo"],
+  ["Which automaker surpassed Tesla", "BYD"],
+  ["Which automaker did BYD overtake", "Tesla"],
+  ["Which company became the world's top-selling electric-vehicle automaker", "BYD"],
+  ["Who was sworn in as President of Switzerland", "Guy Parmelin"],
+  ["Guy Parmelin became president of which country", "Switzerland"],
+  ["Who did Guy Parmelin succeed", "Karin Keller-Sutter"],
+  ["Which country became the first member state to withdraw", "United States"],
+  ["Which international organization did the United States", "World Health Organization"],
+  ["On what date did the United States withdrawal", "January 22, 2026"],
 ] as const;
 
 function createPassingClaudeKnowledge(body: Record<string, unknown>): string {
@@ -364,11 +380,11 @@ async function mockProbeRelay(page: Page, records: ProbeEnvelope[], options: { r
   });
 }
 
-async function configure(page: Page, options: { endpoint: string; protocol: string; model?: string; target?: RegExp }) {
+async function configure(page: Page, options: { endpoint: string; protocol: string; model?: string; target?: RegExp; apiKey?: string }) {
   await page.goto("/");
   await page.locator('input[name="api-endpoint-url"]').fill(options.endpoint);
   await page.getByText("sk-...", { exact: true }).click();
-  await page.locator('input[name="access-token-input"]').fill("sk-test-browser-only");
+  await page.locator('input[name="access-token-input"]').fill(options.apiKey ?? "sk-test-browser-only");
   await page.locator("select").selectOption(options.protocol);
   if (options.target) {
     await page.getByRole("button", { name: options.target }).click();
@@ -380,7 +396,7 @@ async function configure(page: Page, options: { endpoint: string; protocol: stri
 
 async function runAndWait(page: Page) {
   await page.getByRole("button", { name: "开始检测" }).click();
-  await expect(page.getByText("检测结果", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("检测结果", { exact: true })).toBeVisible({ timeout: 45_000 });
 }
 
 test("detection starts when crypto.randomUUID is unavailable on an insecure LAN origin", async ({ page }) => {
@@ -450,6 +466,23 @@ test("custom Anthropic address uses a full quality suite and keeps the model ID"
   expect(records.every((record) => record.endpoint === "https://relay.example/v1/messages")).toBe(true);
   expect(records.every((record) => record.body.model === "vendor/private-claude-v9")).toBe(true);
   await expect(page.getByTestId("authenticity-verdict")).toHaveAttribute("data-verdict", "unverifiable");
+});
+
+test("Google protocol preserves an explicitly supplied Bearer credential", async ({ page }) => {
+  const records: ProbeEnvelope[] = [];
+  await mockProbeRelay(page, records);
+  await configure(page, {
+    endpoint: "https://relay.example/v1",
+    protocol: "google-generative",
+    model: "vendor-gemini-route",
+    target: /Gemini 3.1 Pro/,
+    apiKey: "Bearer google-access-token",
+  });
+  await runAndWait(page);
+
+  expect(records.length).toBeGreaterThan(0);
+  expect(records.every((record) => record.headers.authorization === "Bearer google-access-token")).toBe(true);
+  expect(records.every((record) => record.headers["x-goog-api-key"] === undefined)).toBe(true);
 });
 
 test("recognized claude-5-fable alias auto-selects and runs the Fable profile", async ({ page }) => {
@@ -741,7 +774,7 @@ test("an unavailable main run still shows the independently requested cache repo
   await expect(page.getByTestId("authenticity-verdict")).toHaveAttribute("data-upstream-state", "unavailable");
   await expect(page.getByTestId("cache-report")).toBeVisible();
   await expect(page.getByTestId("cache-report")).toContainText("0/5");
-  expect(records.filter((record) => isCacheProbeStage(record.stage))).toHaveLength(1);
+  expect(records.filter((record) => isCacheProbeStage(record.stage))).toHaveLength(2);
 });
 
 test("cancelling a detection stops cache retries and later logical rounds", async ({ page }) => {
@@ -780,7 +813,7 @@ test("cache probing retries one transient 5xx within the same official round", a
   expect((system[0]?.text?.match(/\[cachecheck mode\]/g) ?? [])).toHaveLength(2);
   expect(JSON.stringify(cacheRecords[0].body.system)).toHaveLength(493);
   expect(JSON.stringify(cacheRecords[0].body)).toHaveLength(15_871);
-  expect(cacheRecords.every((record) => record.timeoutMs === 10_000 && record.preferredProtocolFlavor === "anthropic_direct")).toBe(true);
+  expect(cacheRecords.every((record) => record.timeoutMs === 45_000 && record.preferredProtocolFlavor === "anthropic_direct")).toBe(true);
   await expect(page.getByTestId("cache-report")).toBeVisible();
   await expect(page.getByText(/缓存检测请求失败/)).toHaveCount(0);
 });
@@ -818,6 +851,7 @@ test("Opus 4.8 cache report matches the public weighted-token formula", async ({
 });
 
 test("mixed completed cache groups are shown as unstable instead of confirmed", async ({ page }) => {
+  test.setTimeout(60_000);
   const records: ProbeEnvelope[] = [];
   await mockProbeRelay(page, records, {
     passClaudeTasks: true,

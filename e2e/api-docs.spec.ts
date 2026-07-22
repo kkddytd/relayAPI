@@ -15,7 +15,8 @@ test("API reference is reachable from the shared navigation", async ({ page }) =
   await expect(page.getByText("live_knowledge.source_cache_age_seconds", { exact: true })).toBeVisible();
   await expect(page.getByText("live_knowledge.source_answers_sent_to_model", { exact: true })).toBeVisible();
   await expect(page.getByText("live_knowledge.reason", { exact: true })).toBeVisible();
-  await expect(page.getByText(/Fable 会展示.*缓存创建\/读取 token/)).toBeVisible();
+  await expect(page.getByText(/Fable 的 Opus 4\.8 映射仅描述请求规模/)).toBeVisible();
+  await expect(page.getByText(/每轮包含输入、输出、缓存创建\/读取/)).toBeVisible();
   await expect(page.getByText("scores.official_compatibility", { exact: true })).toBeVisible();
   await expect(page.getByText("scores.public_observable", { exact: true })).toBeVisible();
   await expect(page.getByText("scores.private_signature_adjustment", { exact: true })).toBeVisible();
@@ -53,6 +54,14 @@ test("cache probing is explicitly opt-in", async ({ page }) => {
 });
 
 test("public API metadata and validation routes return the documented shape", async ({ request }) => {
+  const apiIndex = await request.get("/api/v1");
+  expect(apiIndex.status()).toBe(200);
+  await expect(apiIndex.json()).resolves.toMatchObject({
+    ok: true,
+    api_version: "v1",
+    authentication: "localhost-only",
+  });
+
   const models = await request.get("/api/v1/models");
   expect(models.status()).toBe(200);
   const modelCatalog = await models.json();

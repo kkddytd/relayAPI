@@ -42,7 +42,6 @@ if [[ -z "${configured_key//[[:space:]]/}" ]]; then
   printf '%s\n' "已生成检测 API Key，并保存到 $ROOT_DIR/.env："
   printf '%s\n' "$generated_key"
 fi
-export ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE="${ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE:-true}"
 printf '%s\n' "正在构建并启动 relayAPI，请稍候..."
 if ! docker compose up -d --build --wait --wait-timeout "${RELAYAPI_START_TIMEOUT_SECONDS:-180}"; then
   printf '%s\n' "relayAPI 启动失败，最近日志如下：" >&2

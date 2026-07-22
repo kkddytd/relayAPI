@@ -120,6 +120,7 @@ export function resolveEndpoint(
   rawUrl: string,
   model = "",
   protocol: ApiProtocol = "auto",
+  profileModel?: string | null,
 ): { endpoint: string; mode: EndpointMode } {
   const raw = rawUrl.trim();
   if (!raw) return { endpoint: "", mode: "anthropic" };
@@ -149,6 +150,7 @@ export function resolveEndpoint(
   const openAICompatibleHost = officialOpenAIHost || hostname === "openrouter.ai" || hostname.endsWith(".openrouter.ai");
   const googleHost = isGoogleGenerativeHost(hostname);
   const hasVertexAnthropicRoute = googleHost && /\/publishers\/anthropic\/models\/[^/:]+:(?:rawPredict|streamRawPredict)$/i.test(parsedUrl?.pathname ?? "");
+  const inferenceModel = profileModel || model;
 
   const mode: EndpointMode = protocol !== "auto"
     ? protocol
@@ -160,11 +162,13 @@ export function resolveEndpoint(
         ? "openai-chat"
         : hasVertexAnthropicRoute
           ? "anthropic"
-          : isImageModel(model)
+          : isImageModel(inferenceModel)
             ? "openai-images"
-            : isGeminiModel(model) || googleHost
+            : googleHost && /\/projects\//i.test(parsedUrl?.pathname ?? "") && /^claude-/i.test(inferenceModel)
+              ? "anthropic"
+            : isGeminiModel(inferenceModel) || googleHost
               ? "google-generative"
-              : openAICompatibleHost || isOpenAIModel(model)
+              : openAICompatibleHost || isOpenAIModel(inferenceModel)
                 ? "openai-chat"
                 : "anthropic";
 
@@ -204,7 +208,7 @@ export function resolveEndpoint(
     // project/location portion.
     if (parsedUrl && googleHost && /\/projects\//i.test(parsedUrl.pathname)) {
       const publisherBase = /\/publishers\/[^/]+$/i.test(base)
-        ? base
+        ? base.replace(/\/publishers\/[^/]+$/i, "/publishers/google")
         : `${base}/publishers/google`;
       return { endpoint: `${publisherBase}/models/${encodeURIComponent(model)}:generateContent${query}`, mode };
     }
@@ -220,8 +224,11 @@ export function resolveEndpoint(
         mode,
       };
     }
-    if (parsedUrl && googleHost && /\/projects\//i.test(parsedUrl.pathname) && /\/publishers\/anthropic$/i.test(base)) {
-      return { endpoint: `${base}/models/${encodeURIComponent(model)}:rawPredict${query}`, mode };
+    if (parsedUrl && googleHost && /\/projects\//i.test(parsedUrl.pathname)) {
+      const publisherBase = /\/publishers\/[^/]+$/i.test(base)
+        ? base.replace(/\/publishers\/[^/]+$/i, "/publishers/anthropic")
+        : `${base}/publishers/anthropic`;
+      return { endpoint: `${publisherBase}/models/${encodeURIComponent(model)}:rawPredict${query}`, mode };
     }
   }
   return { endpoint: `${base}/v1/messages${query}`, mode };

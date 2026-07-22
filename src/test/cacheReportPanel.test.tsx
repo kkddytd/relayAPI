@@ -124,6 +124,99 @@ describe("CacheReportPanel", () => {
     expect(screen.getByText(/四个预热轮次没有可用的缓存 token 字段/)).not.toBeNull();
   });
 
+  it("does not render missing token metering as measured zeroes", () => {
+    renderReport({
+      ...baseReport,
+      status: "unobserved",
+      rounds: [{
+        round: 1,
+        latencyMs: 10,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        hitRate: null,
+        evidence: false,
+        evidenceFields: [],
+        usageObserved: false,
+        measuredWeighted: 0,
+        multiplier: 0,
+      }],
+      completedRounds: 5,
+      logicalRounds: 5,
+      evidenceFields: [],
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      hitRate: 0,
+      warmHitRate: 0,
+      meteringObserved: false,
+      baselineComparison: "compared",
+      compatibilityScore: null,
+      measuredCostIndex: 0,
+      baselineCostIndex: 100,
+      baselineMultiplier: 0,
+      comparisonHitRate: 0,
+    });
+
+    expect(screen.getAllByText("五轮完成，但未观察到 input、output 或缓存 Token 计量字段").length).toBeGreaterThan(0);
+    expect(screen.queryByText("0x")).toBeNull();
+    expect(screen.queryByText("0%")).toBeNull();
+    expect(screen.getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
+      "1", "-", "-", "-", "-", "-", "-", "-",
+    ]);
+    expect(screen.getAllByRole("cell").at(-1)?.className).toContain("text-muted-foreground");
+  });
+
+  it("suppresses aggregate measurements when only some rounds return token usage", () => {
+    renderReport({
+      ...baseReport,
+      completedRounds: 5,
+      logicalRounds: 5,
+      meteringObserved: true,
+      meteringComplete: false,
+      baselineComparison: "compared",
+      compatibilityScore: 64,
+      measuredCostIndex: 42,
+      baselineCostIndex: 100,
+      baselineMultiplier: 0.42,
+      comparisonHitRate: 20,
+    });
+
+    expect(screen.getByText(/部分轮次缺少 Token 计量字段/)).not.toBeNull();
+    expect(screen.queryByText("64/100")).toBeNull();
+    expect(screen.queryByText("0.42x")).toBeNull();
+    expect(screen.queryByText("20%")).toBeNull();
+  });
+
+  it("hides a round whose usage object is present but incomplete", () => {
+    renderReport({
+      ...baseReport,
+      rounds: [{
+        round: 1,
+        latencyMs: 10,
+        inputTokens: 20,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        hitRate: null,
+        evidence: false,
+        usageObserved: true,
+        usageComplete: false,
+        measuredWeighted: 20,
+        multiplier: 0.2,
+      }],
+      completedRounds: 5,
+      logicalRounds: 5,
+      meteringObserved: true,
+      meteringComplete: false,
+      baselineComparison: "compared",
+    });
+
+    expect(screen.getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
+      "1", "-", "-", "-", "-", "-", "-", "-",
+    ]);
+  });
+
   it("keeps unconfirmed status visible as a warning and recognizes Fable aliases", () => {
     renderReport({
       ...baseReport,
@@ -158,11 +251,17 @@ describe("CacheReportPanel", () => {
       observedWarmRounds: 0,
       compatibilityScore: 0,
       comparisonAssumption: "missing_usage_treated_as_zero",
+      meteringObserved: false,
+      meteringComplete: false,
     };
     renderReport({
       ...confirmedGroup,
       status: "unconfirmed",
       compatibilityScore: 50,
+      baselineMultiplier: 0.5,
+      measuredCostIndex: 50,
+      meteringObserved: true,
+      meteringComplete: false,
       requestedRuns: 2,
       completedRuns: 2,
       aggregation: "median",
@@ -173,5 +272,7 @@ describe("CacheReportPanel", () => {
     expect(screen.getByTestId("cache-multi-run-unconfirmed").textContent).toContain("至少一组没有持续返回四个预热轮次");
     expect(screen.getByText(/顶部五轮明细为代表组/)).not.toBeNull();
     expect(screen.queryByTestId("cache-multi-run-warning")).toBeNull();
+    expect(screen.queryByText("50/100")).toBeNull();
+    expect(screen.queryByText("0.5x")).toBeNull();
   });
 });
