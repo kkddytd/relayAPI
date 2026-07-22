@@ -22,6 +22,10 @@ const trackerDataDirectory = process.env.INSTALL_TRACKER_DATA_DIR
     : path.join(__dirname, "data/install-tracker"));
 const trackerTimeZone = process.env.INSTALL_TRACKER_TIME_ZONE || readEnvValue("INSTALL_TRACKER_TIME_ZONE") || "Asia/Shanghai";
 const trackerTrustProxy = process.env.INSTALL_TRACKER_TRUST_PROXY || readEnvValue("INSTALL_TRACKER_TRUST_PROXY") || "true";
+const dataDirectory = process.env.DATA_DIR || readEnvValue("DATA_DIR") || path.join(__dirname, "data");
+const trustProxy = process.env.TRUST_PROXY || readEnvValue("TRUST_PROXY") || "false";
+const trustedProxyAddresses = process.env.TRUSTED_PROXY_ADDRESSES || readEnvValue("TRUSTED_PROXY_ADDRESSES") || "127.0.0.1,::1";
+const trustedWebProxyToken = process.env.TRUSTED_WEB_PROXY_TOKEN || readEnvValue("TRUSTED_WEB_PROXY_TOKEN") || "kk-public-web-via-loopback";
 module.exports = {
   apps: [
     {
@@ -66,6 +70,10 @@ module.exports = {
         ATTACHMENT_FALLBACK_MODELS: "claude-opus-4-8",
         ATTACHMENT_FALLBACK_PROTOCOLS: "openai-chat",
         ATTACHMENT_FALLBACK_ATTEMPTS: "3",
+        DATA_DIR: dataDirectory,
+        TRUST_PROXY: trustProxy,
+        TRUSTED_PROXY_ADDRESSES: trustedProxyAddresses,
+        TRUSTED_WEB_PROXY_TOKEN: trustedWebProxyToken,
       },
     },
   ],
