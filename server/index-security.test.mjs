@@ -12,6 +12,7 @@ import {
   invokeInternalProbe,
   isDirectLanRequest,
   isDirectLoopbackRequest,
+  installationReportSourceIp,
   isJsonRequest,
   isPrivateAddress,
   isTrustedWebProxyRequest,
@@ -346,6 +347,13 @@ describe("loopback exemptions", () => {
   it("selects the rightmost valid forwarded address instead of a prepended spoof", () => {
     expect(lastValidForwardedAddress("1.2.3.4, 203.0.113.20")).toBe("203.0.113.20");
     expect(lastValidForwardedAddress("not-an-ip")).toBe("");
+  });
+
+  it("uses forwarded installation IPs from a loopback reverse proxy", () => {
+    expect(installationReportSourceIp(request({ "x-forwarded-for": "198.51.100.30" }))).toBe("198.51.100.30");
+    const direct = request({ "x-forwarded-for": "198.51.100.31" });
+    direct.socket.remoteAddress = "203.0.113.40";
+    expect(installationReportSourceIp(direct)).toBe("203.0.113.40");
   });
 });
 

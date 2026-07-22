@@ -13,6 +13,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV DATA_DIR=/app/data
 
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends graphicsmagick ghostscript poppler-utils \
+  && rm -rf /var/lib/apt/lists/*
 RUN npm install --global npm@11.6.2
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund

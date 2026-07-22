@@ -130,6 +130,52 @@ describe("attachment understanding", () => {
     }
   });
 
+  it("always sends attachment instructions to the model", async () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "analysis-test-key" });
+    const id = "att_10000000000000000000000000000002";
+    storeAttachment(storage, {
+      id,
+      name: "instruction.txt",
+      mediaType: "text/plain",
+      content: Buffer.from("model-visible attachment", "utf8"),
+    });
+    const instruction = "Confirm that the attached text is readable.";
+    let probeCalls = 0;
+    try {
+      const report = await analyzeAttachments({
+        input: {
+          baseUrl: "https://api.example.com",
+          upstreamApiKey: "upstream-secret",
+          model: "gpt-test",
+          profileModel: null,
+          protocol: "openai-chat",
+        },
+        attachmentSpecs: [{ id, mode: "understand", instruction }],
+        storage,
+        ownerScope: "local",
+        probe: async (request) => {
+          probeCalls += 1;
+          expect(JSON.stringify(request.body)).toContain(instruction);
+          return openAiAnalysisResponse({
+            attachment_received: true,
+            attachment_type: "text",
+            observation: "The attachment contains model-visible text.",
+          });
+        },
+      });
+
+      expect(probeCalls).toBe(1);
+      expect(report.items[0]).toMatchObject({
+        status: "completed",
+        recognition_status: "recognized",
+        recognition_reason: "model_returned_grounded_attachment_observation",
+      });
+    } finally {
+      storage.close();
+    }
+  });
+
   it("accepts legacy JSON while rejecting self-introductions and incomplete objects", () => {
     const valid = {
       observable_content: "Ink painting with a sword",
@@ -150,6 +196,14 @@ describe("attachment understanding", () => {
       error: "attachment_invalid_analysis_structure",
     });
     expect(parseAttachmentAnalysis("{}")).toMatchObject({ ok: false, analysis: null });
+    expect(parseAttachmentAnalysis(JSON.stringify({ attachment_type: "image", observation: "A picture." }))).toMatchObject({
+      ok: false,
+      analysis: null,
+    });
+    expect(parseAttachmentAnalysis("I can help you with that attachment.")).toMatchObject({
+      ok: false,
+      analysis: null,
+    });
     expect(isUngroundedAttachmentAnalysis({
       observable_content: "",
       extracted_text: "",
@@ -158,6 +212,31 @@ describe("attachment understanding", () => {
       alternatives: [],
       confidence: 0,
       limitations: [],
+    })).toBe(true);
+    expect(isUngroundedAttachmentAnalysis({
+      attachment_received: true,
+      attachment_type: "image",
+      observation: "I'm Claude, an AI assistant made by Anthropic.",
+      evidence: [],
+    })).toBe(true);
+    expect(isUngroundedAttachmentAnalysis({
+      attachment_received: true,
+      attachment_type: "image",
+      observation: "I'm Claude, an AI assistant made by Anthropic.",
+      extracted_text: "I'm Claude, an AI assistant made by Anthropic.",
+      evidence: [],
+    })).toBe(true);
+    expect(isUngroundedAttachmentAnalysis({
+      attachment_received: true,
+      attachment_type: "unknown",
+      observation: "",
+      evidence: {},
+    })).toBe(true);
+    expect(isUngroundedAttachmentAnalysis({
+      attachment_received: true,
+      attachment_type: "image",
+      observation: "",
+      evidence: [],
     })).toBe(true);
     expect(isUngroundedAttachmentAnalysis({
       observable_content: "I'm Claude, an AI assistant made by Anthropic.",
@@ -305,6 +384,8 @@ describe("attachment understanding", () => {
       expect(JSON.stringify(requests[1].body)).not.toContain("data:image/png;base64,");
       expect(report.items[0]).toMatchObject({
         status: "completed",
+        recognition_status: "not-recognized",
+        recognition_reason: "native_visual_payload_unavailable",
         delivery_mode: "byte-summary",
         fallback_from_native: true,
       });
@@ -343,6 +424,7 @@ describe("attachment understanding", () => {
         ownerScope: "local",
         probe: async (request) => {
           const imagePart = request.body.messages[1].content.find((part) => part.type === "image_url");
+          expect(imagePart.image_url.url.startsWith("data:image/webp;base64,")).toBe(true);
           transmitted = Buffer.from(imagePart.image_url.url.split(",")[1], "base64");
           return openAiAnalysisResponse({
             observable_content: "A complete image",
@@ -370,7 +452,103 @@ describe("attachment understanding", () => {
     } finally {
       storage.close();
     }
-  }, 15_000);
+  }, 30_000);
+
+  it("converts nonstandard image formats before sending them as native image input", async () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "analysis-test-key" });
+    const id = "att_22222222222222222222222222222224";
+    const original = await sharp({
+      create: {
+        width: 4,
+        height: 4,
+        channels: 3,
+        background: { r: 180, g: 20, b: 40 },
+      },
+    }).png().toBuffer();
+    storeAttachment(storage, {
+      id,
+      name: "small.avif",
+      mediaType: "application/octet-stream",
+      content: original,
+    });
+    try {
+      const report = await analyzeAttachments({
+        input: {
+          baseUrl: "https://api.example.com",
+          upstreamApiKey: "upstream-secret",
+          model: "gpt-test",
+          profileModel: null,
+          protocol: "openai-chat",
+        },
+        attachmentSpecs: [{ id, mode: "understand" }],
+        storage,
+        ownerScope: "local",
+        probe: async (request) => {
+          const imagePart = request.body.messages[1].content.find((part) => part.type === "image_url");
+          expect(imagePart.image_url.url.startsWith("data:image/webp;base64,")).toBe(true);
+          return openAiAnalysisResponse({
+            attachment_received: true,
+            attachment_type: "image",
+            observation: "A small image was supplied.",
+            confidence: 90,
+          });
+        },
+      });
+
+      expect(report.items[0]).toMatchObject({
+        status: "completed",
+        delivery_mode: "native",
+        transmitted_media_type: "image/webp",
+        native_optimized: true,
+      });
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("uses the Vertex Anthropic request version for attachment analysis", async () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "analysis-test-key" });
+    const id = "att_22222222222222222222222222222225";
+    storeAttachment(storage, {
+      id,
+      name: "vertex-image.png",
+      mediaType: "image/png",
+      content: Buffer.from("native-image-test", "utf8"),
+    });
+    let request;
+    try {
+      const report = await analyzeAttachments({
+        input: {
+          baseUrl: "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/anthropic/models/claude-test:rawPredict",
+          upstreamApiKey: "vertex-token",
+          model: "claude-test",
+          profileModel: null,
+          protocol: "anthropic",
+        },
+        attachmentSpecs: [{ id, mode: "understand" }],
+        storage,
+        ownerScope: "local",
+        probe: async (value) => {
+          request = value;
+          return anthropicAnalysisResponse({
+            attachment_received: true,
+            attachment_type: "image",
+            observation: "A supplied image was visible.",
+            confidence: 90,
+          });
+        },
+      });
+
+      expect(request.body).toMatchObject({ anthropic_version: "vertex-2023-10-16" });
+      expect(request.headers.authorization).toBe("Bearer vertex-token");
+      expect(request.headers["x-api-key"]).toBeUndefined();
+      expect(report.items[0]).toMatchObject({ status: "completed", analysis_protocol: "anthropic" });
+    } finally {
+      storage.close();
+    }
+  });
 
   it("retries a non-structured model response with the attachment and only completes after valid JSON", async () => {
     const dataDirectory = temporaryDirectory();
@@ -837,6 +1015,155 @@ describe("attachment understanding", () => {
       expect(report.items).toHaveLength(fixtures.length);
       expect(report.items.every((item) => item.delivery_mode === "extracted")).toBe(true);
       expect(report.items.every((item) => item.coverage_percent === 100)).toBe(true);
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("renders a PDF preview for OpenAI Chat and reuses it across response repair", async () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "analysis-test-key" });
+    const id = "att_40000000000000000000000000000001";
+    storeAttachment(storage, {
+      id,
+      name: "report.pdf",
+      mediaType: "application/pdf",
+      content: Buffer.from("%PDF-1.7 test fixture", "utf8"),
+    });
+    const preview = await sharp({
+      create: {
+        width: 240,
+        height: 160,
+        channels: 3,
+        background: { r: 245, g: 245, b: 245 },
+      },
+    }).webp().toBuffer();
+    const requests = [];
+    let renderCalls = 0;
+    try {
+      const report = await analyzeAttachments({
+        input: {
+          baseUrl: "https://api.example.com",
+          upstreamApiKey: "upstream-secret",
+          model: "gpt-test",
+          profileModel: null,
+          protocol: "openai-chat",
+        },
+        attachmentSpecs: [{ id, mode: "understand" }],
+        storage,
+        ownerScope: "local",
+        pdfRenderer: async () => {
+          renderCalls += 1;
+          return {
+            buffer: preview,
+            totalPages: 9,
+            pageIndexes: [0, 3, 6, 8],
+            backend: "graphicsmagick",
+          };
+        },
+        probe: async (request) => {
+          requests.push(request);
+          const content = request.body.messages[1].content;
+          expect(content[0].image_url.url).toMatch(/^data:image\/webp;base64,/);
+          expect(content[1].text).toContain("Rendered representative PDF pages 1, 4, 7, 9 of 9");
+          if (requests.length === 1) return openAiTextResponse("I can help with the attachment.");
+          return openAiAnalysisResponse({
+            attachment_received: true,
+            attachment_type: "document",
+            observation: "Rendered PDF pages are visible.",
+            confidence: 95,
+          });
+        },
+      });
+
+      expect(renderCalls).toBe(1);
+      expect(requests).toHaveLength(2);
+      expect(report.items[0]).toMatchObject({
+        status: "completed",
+        recognition_status: "recognized",
+        delivery_mode: "pdf-preview",
+        pdf_preview_generated: true,
+        pdf_page_count: 9,
+        pdf_preview_pages: [1, 4, 7, 9],
+        pdf_preview_backend: "graphicsmagick",
+        transmitted_media_type: "image/webp",
+        format_retry: true,
+      });
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("falls back from a rejected native PDF to a rendered image preview", async () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "analysis-test-key" });
+    const id = "att_40000000000000000000000000000002";
+    storeAttachment(storage, {
+      id,
+      name: "native-first.pdf",
+      mediaType: "application/pdf",
+      content: Buffer.from("%PDF-1.7 native fallback fixture", "utf8"),
+    });
+    const preview = await sharp({
+      create: {
+        width: 200,
+        height: 120,
+        channels: 3,
+        background: { r: 250, g: 250, b: 250 },
+      },
+    }).webp().toBuffer();
+    const requests = [];
+    let renderCalls = 0;
+    try {
+      const report = await analyzeAttachments({
+        input: {
+          baseUrl: "https://api.example.com",
+          upstreamApiKey: "upstream-secret",
+          model: "claude-test",
+          profileModel: null,
+          protocol: "anthropic",
+        },
+        attachmentSpecs: [{ id, mode: "understand" }],
+        storage,
+        ownerScope: "local",
+        pdfRenderer: async () => {
+          renderCalls += 1;
+          return {
+            buffer: preview,
+            totalPages: 2,
+            pageIndexes: [0, 1],
+            backend: "graphicsmagick",
+          };
+        },
+        probe: async (request) => {
+          requests.push(request);
+          const firstPart = request.body.messages[0].content[0];
+          if (requests.length === 1) {
+            expect(firstPart.type).toBe("document");
+            expect(firstPart.source.media_type).toBe("application/pdf");
+            return { status: 415, bodyText: "{}" };
+          }
+          expect(firstPart.type).toBe("image");
+          expect(firstPart.source.media_type).toBe("image/webp");
+          return anthropicAnalysisResponse({
+            attachment_received: true,
+            attachment_type: "document",
+            observation: "Two PDF page previews are visible.",
+            confidence: 90,
+          });
+        },
+      });
+
+      expect(renderCalls).toBe(1);
+      expect(requests).toHaveLength(2);
+      expect(report.items[0]).toMatchObject({
+        status: "completed",
+        delivery_mode: "pdf-preview",
+        fallback_from_native: true,
+        pdf_preview_generated: true,
+        pdf_page_count: 2,
+        pdf_preview_pages: [1, 2],
+      });
     } finally {
       storage.close();
     }

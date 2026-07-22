@@ -33,11 +33,7 @@ function normalizeConfiguredKey(value) {
 function loadEncryptionKey(configuredKey) {
   const explicit = normalizeConfiguredKey(configuredKey);
   if (explicit) return explicit;
-  if (!String(process.env.HISTORY_ENCRYPTION_KEY || "").trim()) {
-    process.env.HISTORY_ENCRYPTION_KEY = HISTORY_ENCRYPTION_KEY;
-  }
-  const environment = normalizeConfiguredKey(process.env.HISTORY_ENCRYPTION_KEY);
-  if (environment) return environment;
+  process.env.HISTORY_ENCRYPTION_KEY = HISTORY_ENCRYPTION_KEY;
   return normalizeConfiguredKey(HISTORY_ENCRYPTION_KEY);
 }
 
@@ -502,14 +498,18 @@ export function createAppStorage({ rootDirectory, dataDirectory, databasePath: c
     publishAttachments(records) {
       const published = [];
       try {
-        for (const record of records) published.push({ record, path: publishAttachment(record) });
-        return published.map((item) => item.path);
+        const names = [...new Set(records.map((record) => attachmentBasename(record.originalName ?? record.original_name)))];
+        for (const name of names) {
+          const latest = db.prepare("SELECT * FROM attachments WHERE original_name = ? ORDER BY created_at DESC, id DESC LIMIT 1")
+            .get(name);
+          if (latest && fs.existsSync(latest.storage_path)) {
+            published.push({ record: latest, path: publishAttachment(latest) });
+          }
+        }
+        return records.map((record) => path.join(attachmentsDirectory, attachmentBasename(record.originalName ?? record.original_name)));
       } catch (error) {
-        // A multi-file request must not leave files from a failed publication
-        // behind. Compare the inode/hash before removing each visible name so
-        // a concurrent newer upload is never touched.
         for (const item of published) {
-          if (fileMatchesRecord(item.path, item.record, item.record.storagePath)) fs.rmSync(item.path, { force: true });
+          if (fileMatchesRecord(item.path, item.record, item.record.storage_path)) fs.rmSync(item.path, { force: true });
         }
         throw error;
       }

@@ -4,6 +4,14 @@ import { createHash, randomUUID } from "node:crypto";
 import Busboy from "busboy";
 import { attachmentBasename } from "./storage.mjs";
 
+let lastAttachmentCreatedAt = 0;
+
+function allocateAttachmentCreatedAt(count) {
+  const first = Math.max(Date.now(), lastAttachmentCreatedAt + 1);
+  lastAttachmentCreatedAt = first + Math.max(0, count - 1);
+  return Array.from({ length: count }, (_, index) => new Date(first + index).toISOString());
+}
+
 export function attachmentViewUrl(value) {
   const name = attachmentBasename(value);
   return `/upload/${encodeURIComponent(name)}`;
@@ -27,6 +35,9 @@ export function receiveAttachmentUploadWithFields(req, { storage, ownerScope, si
 
 function receiveAttachmentUploadInternal(req, { storage, ownerScope, signal } = {}) {
   if (!storage) throw new Error("attachment_storage_required");
+  if (signal?.aborted) {
+    return Promise.reject(Object.assign(new Error("attachment_upload_aborted"), { name: "AbortError" }));
+  }
   return new Promise((resolve, reject) => {
     let parser;
     try {
@@ -40,10 +51,15 @@ function receiveAttachmentUploadInternal(req, { storage, ownerScope, signal } = 
     const artifacts = [];
     const records = [];
     const fields = {};
+    let databaseRecordsCreated = false;
     let settled = false;
     const fail = (error) => {
       if (settled) return;
       settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      if (databaseRecordsCreated && records.length > 0) {
+        storage.deleteAttachments?.(records.map((record) => record.id), ownerScope || "local", { requireUnreferenced: false });
+      }
       for (const filePath of artifacts) removeArtifact(filePath);
       reject(error instanceof Error ? error : new Error("attachment_upload_failed"));
     };
@@ -86,37 +102,55 @@ function receiveAttachmentUploadInternal(req, { storage, ownerScope, signal } = 
             storagePath,
             sizeBytes,
             sha256: hash.digest("hex"),
-            createdAt: new Date().toISOString(),
+            createdAt: null,
           };
           records.push(record);
           resolveFile(record);
         });
         file.pipe(output);
       });
-      pending.push(completed);
+      pending.push(completed.catch((error) => {
+        fail(error);
+        return null;
+      }));
     });
     parser.once("error", fail);
     parser.once("finish", async () => {
       try {
-        const records = await Promise.all(pending);
-        if (records.length === 0) {
+        const completedRecords = (await Promise.all(pending)).filter(Boolean);
+        if (settled) return;
+        if (completedRecords.length === 0) {
           fail(Object.assign(new Error("attachment_file_required"), { code: "attachment_file_required" }));
           return;
         }
-        if (records.length > 0) {
-          storage.createAttachments(records);
+        const createdAtValues = allocateAttachmentCreatedAt(completedRecords.length);
+        completedRecords.forEach((record, index) => {
+          record.createdAt = createdAtValues[index];
+        });
+        if (signal?.aborted) {
+          fail(Object.assign(new Error("attachment_upload_aborted"), { name: "AbortError" }));
+          return;
+        }
+        if (completedRecords.length > 0) {
+          storage.createAttachments(completedRecords);
+          databaseRecordsCreated = true;
           try {
-            storage.publishAttachments(records);
+            storage.publishAttachments(completedRecords);
           } catch (error) {
             // A publish failure must roll back both SQLite rows and private
             // artifacts; callers should never receive an unusable attachment id.
-            storage.deleteAttachments?.(records.map((record) => record.id), ownerScope || "local", { requireUnreferenced: false });
+            storage.deleteAttachments?.(completedRecords.map((record) => record.id), ownerScope || "local", { requireUnreferenced: false });
+            databaseRecordsCreated = false;
             throw error;
           }
         }
+        if (signal?.aborted) {
+          fail(Object.assign(new Error("attachment_upload_aborted"), { name: "AbortError" }));
+          return;
+        }
         settled = true;
         signal?.removeEventListener("abort", onAbort);
-        resolve({ records, fields });
+        resolve({ records: completedRecords, fields });
       } catch (error) {
         fail(error);
       }

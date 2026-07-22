@@ -1988,12 +1988,10 @@ describe("OpenAPI document", () => {
   it("documents detector and upstream keys as separate credentials", () => {
     const document = createOpenApiDocument("http://127.0.0.1:6722");
     expect(document.info.title).toBe("kk 模型检测 API");
-    expect(document.paths["/api/v1/detections"].post.security).toEqual([{ bearerAuth: [] }, { webSession: [] }]);
-    expect(document.components.securitySchemes.webSession).toMatchObject({
-      type: "apiKey",
-      in: "cookie",
-      name: "kk_web_session",
-    });
+    expect(document.paths["/api/v1/detections"].post.security).toEqual([{ bearerAuth: [] }]);
+    expect(document.paths["/api/v1/attachments"].post.security).toEqual([{ bearerAuth: [] }]);
+    expect(document.paths["/api/v1/attachments/{attachmentId}"].delete.security).toEqual([{ bearerAuth: [] }]);
+    expect(document.components.securitySchemes.webSession).toBeUndefined();
     expect(document.paths["/api/v1/detections"].post.requestBody.required).toBe(true);
     expect(document.paths["/api/v1/detections"].post.responses["415"]).toBeDefined();
     expect(document.components.schemas.DetectionRequest.anyOf).toEqual(expect.arrayContaining([

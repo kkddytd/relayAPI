@@ -3263,6 +3263,7 @@ function sanitizeHistoryEntry(value: unknown): HistoryEntry | null {
             id: typeof item.id === "string" ? item.id : "",
             original_name: typeof item.original_name === "string" ? item.original_name : undefined,
             name: typeof item.name === "string" ? item.name : undefined,
+            url: typeof item.url === "string" ? item.url : undefined,
             size_bytes: typeof item.size_bytes === "number" ? item.size_bytes : undefined,
           }))
           .filter((item) => Boolean(item.id))
@@ -4018,6 +4019,13 @@ const Index = () => {
             if (returnedAttachments.length !== attachmentDrafts.length) {
               throw new Error("attachment_upload_count_mismatch");
             }
+            const uploadedByLocalId = new Map(
+              attachmentDrafts.map((draft, index) => [draft.localId, returnedAttachments[index]]),
+            );
+            setAttachmentDrafts((current) => current.map((draft) => {
+              const uploaded = uploadedByLocalId.get(draft.localId);
+              return uploaded ? { ...draft, uploaded } : draft;
+            }));
             attachmentSpecs = uploadedThisRun.map((item, index) => ({
               id: item.id,
               mode: attachmentDrafts[index]?.mode || "understand",
@@ -4158,10 +4166,11 @@ const Index = () => {
         tps: historyMetricsAvailable ? avgTps : undefined,
         inputTokens: historyMetricsAvailable ? inputTokenSum : undefined,
         outputTokens: historyMetricsAvailable ? outputTokenSum : undefined,
-        attachments: attachmentSpecs.map((_, index) => ({
-          id: attachmentDrafts[index]?.file.name || `attachment-${index + 1}`,
-          name: attachmentDrafts[index]?.file.name || `attachment-${index + 1}`,
-          size_bytes: attachmentDrafts[index]?.file.size,
+        attachments: uploadedThisRun.map((item) => ({
+          id: item.id,
+          name: item.name,
+          url: item.url,
+          size_bytes: item.size_bytes,
         })),
         attachmentAnalysis: attachmentAnalysisReport ?? null,
       };

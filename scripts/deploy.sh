@@ -44,7 +44,11 @@ if [[ -z "${configured_key//[[:space:]]/}" ]]; then
 fi
 export ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE="${ALLOW_PUBLIC_PROBE_WITHOUT_TURNSTILE:-true}"
 printf '%s\n' "正在构建并启动 relayAPI，请稍候..."
-docker compose up -d --build
+if ! docker compose up -d --build --wait --wait-timeout "${RELAYAPI_START_TIMEOUT_SECONDS:-180}"; then
+  printf '%s\n' "relayAPI 启动失败，最近日志如下：" >&2
+  docker compose logs --tail=80 relayapi >&2 || true
+  exit 1
+fi
 
 install_marker="${INSTALL_REPORT_MARKER:-${RELAYAPI_DATA_DIR:-$ROOT_DIR/data}/.installation-reported}"
 bash scripts/report-installation.sh "$install_marker" || true

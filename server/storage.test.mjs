@@ -175,11 +175,12 @@ describe("local SQLite storage", () => {
     second.close();
   });
 
-  it("uses HISTORY_ENCRYPTION_KEY from process.env for persisted history", () => {
+  it("uses the built-in history key even when process.env has a different value", () => {
     const dataDirectory = temporaryDirectory();
     const databasePath = path.join(dataDirectory, "history.sqlite");
     process.env.HISTORY_ENCRYPTION_KEY = "environment-history-key";
     const first = createAppStorage({ dataDirectory, databasePath });
+    expect(process.env.HISTORY_ENCRYPTION_KEY).toBe(HISTORY_ENCRYPTION_KEY);
     const runId = first.createRun({
       source: "web",
       request: { base_url: "https://example.com", upstream_api_key: "secret", model: "gpt-test" },
@@ -187,11 +188,6 @@ describe("local SQLite storage", () => {
     first.close();
 
     process.env.HISTORY_ENCRYPTION_KEY = "different-environment-history-key";
-    const wrongKey = createAppStorage({ dataDirectory, databasePath });
-    expect(() => wrongKey.getRunForRetry(runId)).toThrow();
-    wrongKey.close();
-
-    process.env.HISTORY_ENCRYPTION_KEY = "environment-history-key";
     const reopened = createAppStorage({ dataDirectory, databasePath });
     expect(reopened.getRunForRetry(runId)?.request).toMatchObject({
       upstream_api_key: "secret",
@@ -320,6 +316,48 @@ describe("local SQLite storage", () => {
       expect(fs.readFileSync(path.join(reopened.uploadDirectory, "generated-003.png"), "utf8")).toBe("newer image");
     } finally {
       reopened.close();
+    }
+  });
+
+  it("publishes the database-latest same-name attachment even when request order differs", () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "same-name-publish-key" });
+    const createdAt = "2026-07-20T00:00:00.000Z";
+    const olderPath = path.join(storage.attachmentHistoryDirectory, "att_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "same.txt");
+    const latestPath = path.join(storage.attachmentHistoryDirectory, "att_ffffffffffffffffffffffffffffffff", "same.txt");
+    fs.mkdirSync(path.dirname(olderPath), { recursive: true });
+    fs.mkdirSync(path.dirname(latestPath), { recursive: true });
+    fs.writeFileSync(olderPath, "older");
+    fs.writeFileSync(latestPath, "latest");
+    const records = [
+      {
+        id: "att_ffffffffffffffffffffffffffffffff",
+        ownerScope: "local",
+        originalName: "same.txt",
+        mediaType: "text/plain",
+        storagePath: latestPath,
+        sizeBytes: 6,
+        sha256: createHash("sha256").update("latest").digest("hex"),
+        createdAt,
+      },
+      {
+        id: "att_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ownerScope: "local",
+        originalName: "same.txt",
+        mediaType: "text/plain",
+        storagePath: olderPath,
+        sizeBytes: 5,
+        sha256: createHash("sha256").update("older").digest("hex"),
+        createdAt,
+      },
+    ];
+    try {
+      storage.createAttachments(records);
+      storage.publishAttachments(records);
+      expect(storage.getLatestAttachmentByName("same.txt").id).toBe("att_ffffffffffffffffffffffffffffffff");
+      expect(fs.readFileSync(path.join(storage.uploadDirectory, "same.txt"), "utf8")).toBe("latest");
+    } finally {
+      storage.close();
     }
   });
 });

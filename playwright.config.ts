@@ -48,6 +48,8 @@ export default defineConfig({
       INSTALL_TRACKER_HOST: "127.0.0.1",
       INSTALL_TRACKER_PORT: String(trackerPort),
       INSTALL_TRACKER_DATA_DIR: path.join(dataDirectory, "install-tracker"),
+      DETECTOR_API_KEYS: "",
+      DETECTOR_API_KEY: "",
       ALLOW_PRIVATE_UPSTREAMS: "true",
       ALLOW_LAN_WEB_WITHOUT_TURNSTILE: "true",
       TRUST_PROXY: "true",

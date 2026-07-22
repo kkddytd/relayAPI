@@ -258,8 +258,27 @@ export function HistoryLog({ entries, onSelect, onClear, onRetest, retestingId }
                             </div>
 
                             {entry.attachments && entry.attachments.length > 0 && (
-                              <div className="mb-3 border-y border-black/5 py-2 text-xs text-muted-foreground">
-                                {entry.attachments.map((attachment) => attachment.original_name || attachment.name || attachment.id).join(" · ")}
+                              <div className="mb-3 flex flex-wrap gap-x-1 border-y border-black/5 py-2 text-xs text-muted-foreground">
+                                {entry.attachments.map((attachment, index) => {
+                                  const label = attachment.original_name || attachment.name || attachment.id;
+                                  const url = attachment.url?.startsWith("/upload/") ? attachment.url : null;
+                                  return (
+                                    <Fragment key={`${attachment.id}-${index}`}>
+                                      {index > 0 && <span aria-hidden="true">·</span>}
+                                      {url ? (
+                                        <a
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="break-all underline decoration-border underline-offset-2 hover:text-foreground"
+                                          onClick={(event) => event.stopPropagation()}
+                                        >
+                                          {label}
+                                        </a>
+                                      ) : <span className="break-all">{label}</span>}
+                                    </Fragment>
+                                  );
+                                })}
                               </div>
                             )}
 

@@ -112,7 +112,7 @@ function recentLocalDates(timeZone, count) {
 export function createInstallTracker({
   dataDirectory,
   timeZone = process.env.INSTALL_TRACKER_TIME_ZONE || "Asia/Shanghai",
-  trustProxy = process.env.INSTALL_TRACKER_TRUST_PROXY === "true",
+  trustProxy = process.env.INSTALL_TRACKER_TRUST_PROXY !== "false",
 } = {}) {
   const directory = path.resolve(
     dataDirectory ||

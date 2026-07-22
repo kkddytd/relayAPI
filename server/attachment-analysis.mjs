@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { extractText, resolveDetectionEndpoint } from "./detection-api.mjs";
+import { renderPdfPreview } from "./pdf-preview.mjs";
 
 const FULL_TEXT_BYTES = 1024 * 1024;
 const SAMPLE_EDGE_BYTES = 512 * 1024;
@@ -64,7 +65,7 @@ const TEXT_FILENAMES = new Set([
 ]);
 
 const BINARY_EXTENSIONS = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".ico", ".pdf", ".zip", ".gz", ".bz2", ".xz", ".7z", ".rar", ".tar",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".ico", ".avif", ".heic", ".heif", ".pdf", ".zip", ".gz", ".bz2", ".xz", ".7z", ".rar", ".tar",
   ".mp3", ".wav", ".flac", ".mp4", ".mov", ".avi", ".mkv", ".woff", ".woff2", ".ttf", ".otf", ".exe", ".dll", ".so", ".dylib",
 ]);
 
@@ -160,13 +161,16 @@ function isStringArray(value) {
 const ATTACHMENT_MISSING_PATTERN = /(?:no|without|missing).{0,40}(?:attachment|image|file)|(?:attachment|image|file).{0,40}(?:not supplied|not provided|not transmitted|was not supplied|was not provided|unavailable)|(?:未|没有)(?:提供|收到|传输|上传).{0,12}(?:附件|图片|文件)/i;
 const MODEL_SELF_INTRODUCTION_PATTERN = /\b(?:i(?:['\u2019]m| am))\s+(?:claude|chatgpt|gemini|copilot|an?\s+(?:ai|artificial intelligence)(?:\s+assistant)?|an?\s+assistant)\b|(?:我是|作为)(?:\s*(?:claude|chatgpt|gemini|copilot)|.{0,12}(?:ai|人工智能)(?:助手|模型))/i;
 const ATTACHMENT_REFUSAL_PATTERN = /\b(?:i\s+(?:can't|cannot|couldn't|wasn't able to|am unable to)|unable to|cannot)\s+(?:see|view|read|access|analy[sz]e|process|interpret)\b|\b(?:no|without)\s+(?:visual|image)\s+capabilit(?:y|ies)\b|(?:无法|不能|看不到|看不见|无法识别|不支持).{0,20}(?:附件|图片|文件|内容|读取|识别)/i;
+const MODEL_GENERIC_ASSISTANT_PATTERN = /^(?:i\s+(?:can|could|will|would)\s+(?:help|assist|answer|provide|try|do)\b|i(?:['\u2019]m| am)\s+here\s+to\s+(?:help|assist)\b|i(?:['\u2019]d| would)\s+be\s+happy\s+to\b|sure\b|of course\b|certainly\b|happy to\b|how can i\b|let me know\b|thanks? for (?:sharing|uploading)\b|thank you for (?:sharing|uploading)\b|(?:当然|好的|我可以帮你|我能帮你|请提供|让我来|很乐意|已收到附件|收到附件))/i;
 
 function hasGroundedAttachmentEvidence(analysis) {
+  const evidence = isStringArray(analysis?.evidence) ? analysis.evidence : [];
   return Boolean(
     String(analysis?.observation || "").trim() ||
-    String(analysis?.attachment_type || "").trim() && String(analysis?.attachment_type || "").trim().toLowerCase() !== "unknown" ||
+    String(analysis?.observable_content || "").trim() ||
+    String(analysis?.likely_purpose || "").trim() ||
     String(analysis?.extracted_text || "").trim() ||
-    analysis?.evidence?.some((item) => String(item || "").trim()),
+    evidence.some((item) => String(item || "").trim()),
   );
 }
 
@@ -177,25 +181,31 @@ export function isUngroundedAttachmentAnalysis(analysis) {
     .map((value) => String(value || "").trim())
     .filter(Boolean)
     .join(" ");
+  const evidence = isStringArray(analysis?.evidence) ? analysis.evidence : [];
+  const extractedText = String(analysis?.extracted_text || "").trim();
   const positiveTextEvidence = Boolean(
-    String(analysis?.extracted_text || "").trim() ||
-    analysis?.evidence?.some((item) => String(item || "").trim()),
+    extractedText ||
+    evidence.some((item) => String(item || "").trim()),
   );
-  if ((ATTACHMENT_MISSING_PATTERN.test(narrative) || ATTACHMENT_REFUSAL_PATTERN.test(narrative)) && !positiveTextEvidence) return true;
+  const corroboratedQuotedContent = Boolean(
+    extractedText &&
+    evidence.some((item) => String(item || "").trim()) &&
+    String(analysis?.observable_content || analysis?.observation || analysis?.likely_purpose || "").trim(),
+  );
+  const suspiciousNarrative = ATTACHMENT_MISSING_PATTERN.test(narrative) ||
+    ATTACHMENT_REFUSAL_PATTERN.test(narrative) ||
+    MODEL_SELF_INTRODUCTION_PATTERN.test(narrative) ||
+    MODEL_GENERIC_ASSISTANT_PATTERN.test(narrative);
+  if (suspiciousNarrative && !corroboratedQuotedContent) return true;
   const hasEvidence = hasGroundedAttachmentEvidence(analysis);
-  if ((ATTACHMENT_MISSING_PATTERN.test(limitations) || ATTACHMENT_REFUSAL_PATTERN.test(limitations)) && !positiveTextEvidence) return true;
-
-  // Some relays wrap a model refusal or self-introduction in the requested
-  // JSON schema. Accept the same words when they are actually grounded as OCR
-  // text or evidence from the attachment.
-  if (analysis?.attachment_received === true && hasEvidence && !ATTACHMENT_MISSING_PATTERN.test(narrative) && !ATTACHMENT_REFUSAL_PATTERN.test(narrative)) return false;
-  if (hasEvidence) return false;
-  if (!narrative && !limitations.trim()) return true;
-  return ATTACHMENT_MISSING_PATTERN.test(narrative) || ATTACHMENT_REFUSAL_PATTERN.test(narrative) || MODEL_SELF_INTRODUCTION_PATTERN.test(narrative);
+  if (!hasEvidence) return true;
+  if ((ATTACHMENT_MISSING_PATTERN.test(limitations) || ATTACHMENT_REFUSAL_PATTERN.test(limitations) || MODEL_GENERIC_ASSISTANT_PATTERN.test(limitations)) && !positiveTextEvidence) return true;
+  return false;
 }
 
 export function parseAttachmentAnalysis(text) {
   const trimmed = String(text || "").trim();
+  const structuredCandidate = /^\s*[\[{]/.test(trimmed) || /^\s*```(?:json)?\b/i.test(trimmed) || /\{[\s\S]*\}/.test(trimmed);
   const candidates = [trimmed, trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1], trimmed.match(/\{[\s\S]*\}/)?.[0]].filter(Boolean);
   for (const candidate of candidates) {
     try {
@@ -220,7 +230,7 @@ export function parseAttachmentAnalysis(text) {
         ? value.observable_content.trim()
         : observation;
       const type = typeof value.attachment_type === "string" ? value.attachment_type.trim() : "";
-      const hasRecognitionShape = receivedValue !== null && (typeof value.observation === "string" || typeof value.attachment_type === "string");
+      const hasRecognitionShape = receivedValue !== null && typeof value.observation === "string" && typeof value.attachment_type === "string";
       if (!hasLegacyShape && !hasRecognitionShape) continue;
       const extractedText = typeof value.extracted_text === "string" ? value.extracted_text : "";
       const evidence = isStringArray(value.evidence)
@@ -252,7 +262,7 @@ export function parseAttachmentAnalysis(text) {
   // A few compatible endpoints ignore JSON-only instructions. A concise,
   // attachment-grounded free-form observation is still enough for the
   // recognition check; self-introductions and refusals remain failures.
-  if (trimmed.length >= 12 && !MODEL_SELF_INTRODUCTION_PATTERN.test(trimmed) && !ATTACHMENT_MISSING_PATTERN.test(trimmed) && !ATTACHMENT_REFUSAL_PATTERN.test(trimmed)) {
+  if (trimmed.length >= 12 && !structuredCandidate && !MODEL_SELF_INTRODUCTION_PATTERN.test(trimmed) && !MODEL_GENERIC_ASSISTANT_PATTERN.test(trimmed) && !ATTACHMENT_MISSING_PATTERN.test(trimmed) && !ATTACHMENT_REFUSAL_PATTERN.test(trimmed)) {
     return {
       ok: true,
       analysis: {
@@ -371,44 +381,26 @@ function inferredNativeMediaType(record) {
     ".bmp": "image/bmp",
     ".tif": "image/tiff",
     ".tiff": "image/tiff",
+    ".avif": "image/avif",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
     ".pdf": "application/pdf",
   })[extension] || declared || "application/octet-stream";
 }
 
-const SYSTEM_CODEC_TOOLS = {
-  ".heic": { tool: "convert", args: (f) => [f, `${f}.jpg`] },
-  ".heif": { tool: "convert", args: (f) => [f, `${f}.jpg`] },
-  ".avif": { tool: "convert", args: (f) => [f, `${f}.png`] },
-};
-
-async function convertWithSystemCodec(filePath, originalName, options = {}) {
-  let tool, args;
-  if (options.tool && options.args) {
-    tool = options.tool;
-    args = options.args;
-  } else {
-    const ext = path.extname(originalName || "").toLowerCase();
-    const mapping = SYSTEM_CODEC_TOOLS[ext];
-    if (!mapping) return null;
-    tool = mapping.tool;
-    args = typeof mapping.args === "function" ? mapping.args(filePath) : mapping.args;
-  }
-  if (!tool || !args) return null;
-  try {
-    const { execFileSync } = await import("node:child_process");
-    return execFileSync(tool, args, {
-      timeout: options.timeout || 15000,
-      maxBuffer: options.maxBuffer || 1024 * 1024,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch (err) {
-    return err.stderr?.toString?.() || err.message || null;
-  }
+function isVisualAttachment(record) {
+  const mediaType = inferredNativeMediaType(record);
+  return mediaType.startsWith("image/");
 }
+
+const NONSTANDARD_IMAGE_EXTENSIONS = new Set([".avif", ".heic", ".heif"]);
+const NONSTANDARD_IMAGE_MEDIA_TYPES = new Set(["image/avif", "image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"]);
 
 async function prepareNativePayload(record, nativeType) {
   const source = fs.readFileSync(record.storage_path);
+  const extension = path.extname(record.original_name || "").toLowerCase();
+  const mediaType = String(record.media_type || "").toLowerCase();
+  const requiresConversion = NONSTANDARD_IMAGE_EXTENSIONS.has(extension) || NONSTANDARD_IMAGE_MEDIA_TYPES.has(mediaType);
   const unchanged = {
     data: source.toString("base64"),
     mediaType: record.media_type,
@@ -420,7 +412,20 @@ async function prepareNativePayload(record, nativeType) {
   try {
     const metadata = await sharp(source, { animated: false }).metadata();
     const oversizedDimensions = Number(metadata.width || 0) > 4096 || Number(metadata.height || 0) > 4096;
-    if (source.length <= NATIVE_IMAGE_TARGET_BYTES && !oversizedDimensions) return unchanged;
+    if (!requiresConversion && source.length <= NATIVE_IMAGE_TARGET_BYTES && !oversizedDimensions) return unchanged;
+
+    if (requiresConversion) {
+      const converted = await sharp(source, { animated: false })
+        .rotate()
+        .webp({ quality: 88, effort: 1 })
+        .toBuffer();
+      return {
+        data: converted.toString("base64"),
+        mediaType: "image/webp",
+        sizeBytes: converted.length,
+        optimized: true,
+      };
+    }
 
     let best = null;
     for (const dimension of [2048, 1600, 1280, 1024]) {
@@ -449,30 +454,18 @@ async function prepareNativePayload(record, nativeType) {
         optimized: true,
       };
     }
-  } catch {
-    const ext = path.extname(record.original_name || "").toLowerCase();
-    if (SYSTEM_CODEC_TOOLS[ext]) {
-      try {
-        const converted = await convertWithSystemCodec(record.storage_path, record.original_name);
-        if (converted) {
-          const outBuf = fs.readFileSync(record.storage_path + (ext === ".avif" ? ".png" : ".jpg"));
-          try { fs.unlinkSync(record.storage_path + (ext === ".avif" ? ".png" : ".jpg")); } catch {}
-          return {
-            data: outBuf.toString("base64"),
-            mediaType: ext === ".avif" ? "image/png" : "image/jpeg",
-            sizeBytes: outBuf.length,
-            optimized: true,
-          };
-        }
-      } catch {}
-    }
-    // Keep the original native attempt; a rejecting upstream can still use
-    // the existing byte-summary fallback without changing the stored file.
-  }
+  } catch {}
   return unchanged;
 }
 
-function createBody({ protocol, model, prompt, record, nativeType, data, representation }) {
+function cachedPdfPreview(record, cache, renderer, signal) {
+  const key = `${record.storage_path}:${record.size_bytes}:${record.sha256}`;
+  if (!cache) return renderer(record.storage_path, { signal });
+  if (!cache.has(key)) cache.set(key, renderer(record.storage_path, { signal }));
+  return cache.get(key);
+}
+
+function createBody({ protocol, model, prompt, record, nativeType, data, representation, endpoint }) {
   const systemInstruction = `${ATTACHMENT_SYSTEM_INSTRUCTION}\n\n${prompt}`;
   if (protocol === "anthropic") {
     const content = nativeType === "image"
@@ -480,7 +473,14 @@ function createBody({ protocol, model, prompt, record, nativeType, data, represe
       : nativeType === "document"
         ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data } }, { type: "text", text: prompt }]
         : [{ type: "text", text: `${prompt}\n\nAttachment-derived material:\n\n${representation}` }];
-    return { model, system: systemInstruction, max_tokens: 2048, stream: false, messages: [{ role: "user", content }] };
+    const vertexAnthropic = (() => {
+      try {
+        return /(?:^|[.-])aiplatform\.googleapis\.com$/i.test(new URL(endpoint).hostname);
+      } catch {
+        return false;
+      }
+    })();
+    return { model, system: systemInstruction, max_tokens: 2048, stream: false, messages: [{ role: "user", content }], ...(vertexAnthropic ? { anthropic_version: "vertex-2023-10-16" } : {}) };
   }
   if (protocol === "google-generative") {
     const parts = nativeType
@@ -502,33 +502,71 @@ function createBody({ protocol, model, prompt, record, nativeType, data, represe
   return { model, messages: [{ role: "system", content: systemInstruction }, { role: "user", content }], max_completion_tokens: 2048, stream: false, temperature: 0 };
 }
 
-async function invokeAnalysisProbe({ input, record, spec, probe, signal, forceRepresentation = false, repair = false }) {
+async function invokeAnalysisProbe({ input, record, spec, probe, signal, previewCache, pdfRenderer, forceRepresentation = false, repair = false }) {
   const endpointInfo = resolveDetectionEndpoint(input.baseUrl, input.model, input.protocol, input.profileModel);
   if (endpointInfo.protocol === "openai-images") {
     return { status: "unsupported", upstreamStatus: 0, error: "image_generation_protocol_cannot_analyze_attachments" };
   }
   const sampled = readEdges(record.storage_path, record.size_bytes);
   const inferredRecord = { ...record, media_type: inferredNativeMediaType(record) };
-  const nativeType = forceRepresentation ? null : nativeKind(inferredRecord, endpointInfo.protocol);
+  const isPdf = inferredRecord.media_type === "application/pdf";
+  let nativeType = forceRepresentation ? null : nativeKind(inferredRecord, endpointInfo.protocol);
+  let pdfPreview = null;
+  let pdfPreviewError = null;
+  if (isPdf && nativeType === null) {
+    try {
+      pdfPreview = await cachedPdfPreview(inferredRecord, previewCache, pdfRenderer, signal);
+      nativeType = "image";
+    } catch (error) {
+      pdfPreviewError = error instanceof Error ? error.message : "pdf_preview_conversion_failed";
+    }
+  }
   const textLike = isTextLike(record, sampled);
   const representation = textLike
     ? sampled.toString("utf8")
     : byteSummary(record, sampled);
   const sampledBytes = Math.min(record.size_bytes, record.size_bytes <= FULL_TEXT_BYTES ? record.size_bytes : SAMPLE_EDGE_BYTES * 2);
-  const deliveryMode = nativeType ? "native" : textLike
+  const deliveryMode = pdfPreview ? "pdf-preview" : nativeType ? "native" : textLike
     ? sampledBytes >= record.size_bytes ? "extracted" : "sampled"
     : "byte-summary";
-  const coveragePercent = nativeType || record.size_bytes === 0
+  const coveragePercent = pdfPreview
+    ? Number(((pdfPreview.pageIndexes.length / pdfPreview.totalPages) * 100).toFixed(2))
+    : nativeType || record.size_bytes === 0
     ? 100
     : Number(Math.min(100, (sampledBytes / record.size_bytes) * 100).toFixed(2));
+  if (isPdf && nativeType === null) {
+    return {
+      status: "failed",
+      upstreamStatus: 0,
+      error: "attachment_pdf_preview_failed",
+      deliveryMode,
+      coveragePercent: 0,
+      analysisProtocol: endpointInfo.protocol,
+      nativeAttempted: false,
+      nativeOptimized: false,
+      transmittedMediaType: null,
+      transmittedSizeBytes: null,
+      pdfPreviewGenerated: false,
+      pdfPreviewError,
+    };
+  }
   const prompt = buildPrompt(
     spec,
     record,
     deliveryMode,
-    deliveryMode === "sampled" ? `Only ${coveragePercent}% of the bytes fit in this analysis request.` : "",
+    pdfPreview
+      ? `Rendered representative PDF pages ${pdfPreview.pageIndexes.map((index) => index + 1).join(", ")} of ${pdfPreview.totalPages}.`
+      : deliveryMode === "sampled" ? `Only ${coveragePercent}% of the bytes fit in this analysis request.` : "",
     { repair },
   );
-  const nativePayload = nativeType ? await prepareNativePayload(inferredRecord, nativeType) : null;
+  const nativePayload = pdfPreview
+    ? {
+      data: pdfPreview.buffer.toString("base64"),
+      mediaType: "image/webp",
+      sizeBytes: pdfPreview.buffer.length,
+      optimized: true,
+    }
+    : nativeType ? await prepareNativePayload(inferredRecord, nativeType) : null;
   const requestRecord = nativePayload ? { ...inferredRecord, media_type: nativePayload.mediaType } : inferredRecord;
   const data = nativePayload?.data ?? null;
   const resultMetadata = {
@@ -539,6 +577,11 @@ async function invokeAnalysisProbe({ input, record, spec, probe, signal, forceRe
     nativeOptimized: nativePayload?.optimized === true,
     transmittedMediaType: nativePayload?.mediaType ?? null,
     transmittedSizeBytes: nativePayload?.sizeBytes ?? null,
+    pdfPreviewGenerated: Boolean(pdfPreview),
+    pdfPreviewPageCount: pdfPreview?.totalPages ?? null,
+    pdfPreviewPages: pdfPreview?.pageIndexes.map((index) => index + 1) ?? [],
+    pdfPreviewBackend: pdfPreview?.backend ?? null,
+    pdfPreviewError,
   };
   const response = await probe({
     stage: "attachment-analysis",
@@ -554,6 +597,7 @@ async function invokeAnalysisProbe({ input, record, spec, probe, signal, forceRe
       nativeType,
       data,
       representation,
+      endpoint: endpointInfo.endpoint,
     }),
   }, { signal });
   const upstreamStatus = typeof response?.status === "number" ? response.status : 0;
@@ -601,6 +645,8 @@ async function invokeAnalysisWithRetry({
   spec,
   probe,
   signal,
+  previewCache,
+  pdfRenderer,
   skipMissingRepair = false,
   maxAttempts = 2,
   preferVisionFallback = false,
@@ -608,14 +654,14 @@ async function invokeAnalysisWithRetry({
   const attemptLimit = Math.max(1, Math.min(5, Math.trunc(Number(maxAttempts)) || 2));
   let attempts = 1;
   let formatRetry = false;
-  let result = await invokeAnalysisProbe({ input, record, spec, probe, signal });
+  let result = await invokeAnalysisProbe({ input, record, spec, probe, signal, previewCache, pdfRenderer });
   if (
     !preferVisionFallback &&
     result.status === "failed" &&
     result.nativeAttempted &&
     [400, 413, 415, 422].includes(result.upstreamStatus)
   ) {
-    const fallback = await invokeAnalysisProbe({ input, record, spec, probe, signal, forceRepresentation: true });
+    const fallback = await invokeAnalysisProbe({ input, record, spec, probe, signal, previewCache, pdfRenderer, forceRepresentation: true });
     result = { ...fallback, fallback_from_native: true };
     attempts += 1;
   }
@@ -630,6 +676,8 @@ async function invokeAnalysisWithRetry({
       spec,
       probe,
       signal,
+      previewCache,
+      pdfRenderer,
       forceRepresentation: result.fallback_from_native === true,
       repair: true,
     });
@@ -677,7 +725,9 @@ function canUseVisionModelFallback(result) {
 }
 
 function recognitionReason(result) {
+  if (result?.recognitionStatus === "not-recognized" && result?.recognitionReason) return result.recognitionReason;
   if (result?.status === "completed") return "model_returned_grounded_attachment_observation";
+  if (result?.error === "attachment_pdf_preview_failed") return "pdf_preview_failed";
   if (result?.error === "attachment_not_observed_by_model") return "model_did_not_observe_attachment";
   if (result?.error === "attachment_invalid_analysis_structure" || result?.error === "attachment_empty_model_response") {
     return "model_returned_invalid_response";
@@ -687,7 +737,6 @@ function recognitionReason(result) {
   return "attachment_analysis_failed";
 }
 
-export { convertWithSystemCodec };
 export async function analyzeAttachments({
   input,
   attachmentSpecs,
@@ -699,8 +748,10 @@ export async function analyzeAttachments({
   fallbackModels = [],
   fallbackProtocols = [],
   fallbackAttempts = 2,
+  pdfRenderer = renderPdfPreview,
 }) {
   const items = [];
+  const previewCache = new Map();
   const modelFallbacks = normalizedFallbackModels(input.model, fallbackModels);
   const protocolFallbacks = normalizedFallbackProtocols(input.protocol, fallbackProtocols);
   const modelAttemptLimit = Math.max(1, Math.min(5, Math.trunc(Number(fallbackAttempts)) || 2));
@@ -725,6 +776,8 @@ export async function analyzeAttachments({
         spec,
         probe,
         signal,
+        previewCache,
+        pdfRenderer,
         skipMissingRepair: modelFallbacks.length > 0,
         preferVisionFallback: modelFallbacks.length > 0,
       });
@@ -747,6 +800,8 @@ export async function analyzeAttachments({
               spec,
               probe,
               signal,
+              previewCache,
+              pdfRenderer,
               maxAttempts: modelAttemptLimit,
               preferVisionFallback: protocolIndex < protocols.length - 1,
             });
@@ -778,7 +833,14 @@ export async function analyzeAttachments({
     const verification = result.analysis && spec.mode === "verify" && typeof spec.expected_intent === "string" && spec.expected_intent.trim()
       ? verifyExpectedIntent(spec.expected_intent, result.analysis)
       : null;
-    const recognitionStatus = result.status === "completed" ? "recognized" : "not-recognized";
+    const visualPayloadUnavailable = result.status === "completed" &&
+      result.fallback_from_native === true &&
+      result.deliveryMode === "byte-summary" &&
+      isVisualAttachment(record);
+    const recognitionStatus = result.status === "completed" && !visualPayloadUnavailable ? "recognized" : "not-recognized";
+    const recognitionResult = visualPayloadUnavailable
+      ? { recognitionStatus: "not-recognized", recognitionReason: "native_visual_payload_unavailable" }
+      : result;
     items.push({
       attachment_id: record.id,
       name: record.original_name,
@@ -788,7 +850,7 @@ export async function analyzeAttachments({
       mode: typeof spec.mode === "string" ? spec.mode : verification ? "verify" : "understand",
       status: result.status,
       recognition_status: recognitionStatus,
-      recognition_reason: recognitionReason(result),
+      recognition_reason: recognitionReason(recognitionResult),
       requested_model: input.model,
       analysis_model: result.analysisModel ?? input.model,
       model_fallback: result.modelFallback === true,
@@ -807,6 +869,11 @@ export async function analyzeAttachments({
       native_optimized: result.nativeOptimized === true,
       transmitted_media_type: result.transmittedMediaType ?? null,
       transmitted_size_bytes: result.transmittedSizeBytes ?? null,
+      pdf_preview_generated: result.pdfPreviewGenerated === true,
+      pdf_page_count: result.pdfPreviewPageCount ?? null,
+      pdf_preview_pages: result.pdfPreviewPages ?? [],
+      pdf_preview_backend: result.pdfPreviewBackend ?? null,
+      pdf_preview_error: result.pdfPreviewError ?? null,
       analysis: result.analysis ?? null,
       verification,
       raw_response: result.responseText ?? null,

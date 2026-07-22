@@ -30,6 +30,7 @@ import { inspectClaudeSignatureEnvelope } from "./claude-signature.mjs";
 import { analyzeAttachments, isUngroundedAttachmentAnalysis } from "./attachment-analysis.mjs";
 import { attachmentViewUrl, publicAttachmentRecord, receiveAttachmentUpload, receiveAttachmentUploadWithFields } from "./attachments.mjs";
 import { createAppStorage, credentialFingerprint } from "./storage.mjs";
+import { loadEnvironmentFiles, resolveInstallTrackerUrl } from "./start-config.mjs";
 
 export function extractAnthropicContentSignatures(payload) {
   const values = [];
@@ -72,29 +73,11 @@ function appStorage() {
   return appStorageInstance;
 }
 
-function loadEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return;
-  const content = fs.readFileSync(filePath, "utf8");
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex === -1) continue;
-    const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, "");
-    if (key && process.env[key] === undefined) {
-      process.env[key] = value;
-    }
-  }
-}
-
-loadEnvFile(process.env.KK_ENV_FILE || "/var/lib/kk-model-monitor/.env");
-loadEnvFile(path.join(rootDir, ".env"));
-loadEnvFile(path.join(rootDir, ".env.local"));
+loadEnvironmentFiles(rootDir);
 
 const port = Number(process.env.PORT || 6722);
 const host = process.env.HOST || "127.0.0.1";
-const installTrackerUrl = process.env.INSTALL_TRACKER_URL || "http://127.0.0.1:6723";
+const installTrackerUrl = resolveInstallTrackerUrl();
 const configuredLiveKnowledgeTtlMs = Number(process.env.LIVE_KNOWLEDGE_TTL_MS || 900_000);
 const liveKnowledgeTtlMs = Number.isFinite(configuredLiveKnowledgeTtlMs)
   ? Math.max(60_000, configuredLiveKnowledgeTtlMs)
@@ -162,6 +145,7 @@ const configuredAttachmentOrphanRetentionHours = Number(process.env.ATTACHMENT_O
 const attachmentOrphanRetentionMs = Number.isFinite(configuredAttachmentOrphanRetentionHours)
   ? Math.max(1, Math.min(8760, configuredAttachmentOrphanRetentionHours)) * 60 * 60 * 1000
   : 24 * 60 * 60 * 1000;
+const attachmentAutoPruneOrphans = process.env.ATTACHMENT_AUTO_PRUNE_ORPHANS === "true";
 const attachmentFallbackModels = [...new Set((process.env.ATTACHMENT_FALLBACK_MODELS || "")
   .split(",")
   .map((item) => item.trim())
@@ -683,6 +667,16 @@ export function requestSourceKey(req) {
   return lastValidForwardedAddress(req.headers["x-forwarded-for"]) || socketAddress;
 }
 
+export function installationReportSourceIp(req) {
+  const socketAddress = normalizeRemoteAddress(req.socket?.remoteAddress) || "unknown";
+  if (isLoopbackAddress(socketAddress)) {
+    return lastValidForwardedAddress(req.headers["x-forwarded-for"]) ||
+      lastValidForwardedAddress(req.headers["x-real-ip"]) ||
+      socketAddress;
+  }
+  return requestSourceKey(req);
+}
+
 function safeSecretEqual(left, right) {
   const leftBuffer = Buffer.from(String(left));
   const rightBuffer = Buffer.from(String(right));
@@ -759,7 +753,8 @@ function detectorRouteAuthorization(req, res) {
 }
 
 function requestPublicBaseUrl(req) {
-  const forwardedProto = isTrustedProxyRequest(req) && typeof req.headers["x-forwarded-proto"] === "string"
+  const loopbackProxy = isLoopbackAddress(req.socket?.remoteAddress) && requestHasProxyHeaders(req);
+  const forwardedProto = (isTrustedProxyRequest(req) || loopbackProxy) && typeof req.headers["x-forwarded-proto"] === "string"
     ? lastForwardedValue(req.headers["x-forwarded-proto"])
     : "";
   const protocol = forwardedProto === "https" ? "https" : "http";
@@ -2607,6 +2602,8 @@ export function publicAttachmentAnalysis(report) {
           "upstream_request_failed",
           "attachment_not_found",
           "attachment_analysis_failed",
+          "native_visual_payload_unavailable",
+          "pdf_preview_failed",
         ]);
         const recognitionReason = !invalidCompletedAnalysis && validRecognitionReasons.has(normalizedItem.recognition_reason)
           ? normalizedItem.recognition_reason
@@ -3042,9 +3039,14 @@ async function proxyInstallTracker(req, res, pathname) {
   res.once("close", abort);
   try {
     if (req.method === "POST") req.resume();
+    const sourceIp = installationReportSourceIp(req);
     const response = await fetch(`${installTrackerUrl}${pathname}`, {
       method: req.method,
-      headers: { accept: req.headers.accept || "application/json" },
+      headers: {
+        accept: req.headers.accept || "application/json",
+        "x-forwarded-for": sourceIp,
+        "x-real-ip": sourceIp,
+      },
       signal: controller.signal,
     });
     res.statusCode = response.status;
@@ -3487,6 +3489,7 @@ function serveUploadedAttachment(req, res, urlPath) {
   res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(name)}`);
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "sandbox; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'");
   if (req.method === "HEAD") {
     res.end();
     return true;
@@ -3709,6 +3712,7 @@ server.maxRequestsPerSocket = 100;
 server.maxConnections = serverMaxConnections;
 
 function pruneExpiredAttachments() {
+  if (!attachmentAutoPruneOrphans) return 0;
   try {
     return appStorage().pruneUnreferencedAttachments({
       olderThan: new Date(Date.now() - attachmentOrphanRetentionMs),

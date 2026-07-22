@@ -59,7 +59,7 @@ describe("arbitrary attachment uploads", () => {
     const dataDirectory = temporaryDirectory();
     const storage = createAppStorage({ dataDirectory, encryptionKey: "attachment-test-key" });
     const binary = Buffer.from([0, 255, 17, 34, 0, 128, 65, 66, 67, 10]);
-      const second = Buffer.from("plain bytes are accepted too", "utf8");
+    const second = Buffer.from("plain bytes are accepted too", "utf8");
     try {
       const records = await receiveAttachmentUpload(multipartRequest([
         { name: "payload.unknown-extension", type: "application/x-anything", content: binary },
@@ -99,6 +99,10 @@ describe("arbitrary attachment uploads", () => {
     try {
       await expect(receiveAttachmentUpload(multipartRequest([]), { storage, ownerScope: "local" }))
         .rejects.toThrow("attachment_file_required");
+      await expect(receiveAttachmentUploadWithFields(multipartRequest([], {
+        _sys: "caller-controlled",
+        instruction: "attachment guidance",
+      }), { storage, ownerScope: "local" })).rejects.toThrow("attachment_file_required");
       expect(fs.readdirSync(storage.attachmentsDirectory)).toEqual([]);
     } finally {
       storage.close();
@@ -200,6 +204,39 @@ describe("arbitrary attachment uploads", () => {
       expect(fs.existsSync(first[0].storagePath)).toBe(false);
       expect(fs.readFileSync(path.join(storage.uploadDirectory, "same.js"), "utf8")).toBe("second");
       expect(fs.existsSync(second[0].storagePath)).toBe(true);
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("publishes the last same-name file from one multipart request", async () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "attachment-test-key" });
+    try {
+      const records = await receiveAttachmentUpload(multipartRequest([
+        { name: "same.txt", type: "text/plain", content: Buffer.from("first") },
+        { name: "same.txt", type: "text/plain", content: Buffer.from("last") },
+      ]), { storage, ownerScope: "local" });
+
+      expect(records).toHaveLength(2);
+      expect(records[1].createdAt > records[0].createdAt).toBe(true);
+      expect(fs.readFileSync(path.join(storage.uploadDirectory, "same.txt"), "utf8")).toBe("last");
+    } finally {
+      storage.close();
+    }
+  });
+
+  it("does not parse or store a request whose signal is already aborted", async () => {
+    const dataDirectory = temporaryDirectory();
+    const storage = createAppStorage({ dataDirectory, encryptionKey: "attachment-test-key" });
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      await expect(receiveAttachmentUpload(multipartRequest([
+        { name: "cancelled.txt", type: "text/plain", content: Buffer.from("cancelled") },
+      ]), { storage, ownerScope: "local", signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+      expect(fs.readdirSync(storage.attachmentsDirectory)).toEqual([]);
+      expect(fs.readdirSync(storage.attachmentHistoryDirectory)).toEqual([]);
     } finally {
       storage.close();
     }

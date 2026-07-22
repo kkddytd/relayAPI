@@ -1,9 +1,11 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { loadEnvironmentFiles, resolveInstallTrackerUrl } from "./start-config.mjs";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const trackerUrl = process.env.INSTALL_TRACKER_URL || "http://127.0.0.1:6723";
+loadEnvironmentFiles(rootDirectory);
+const trackerUrl = resolveInstallTrackerUrl();
 const children = new Set();
 let stopping = false;
 

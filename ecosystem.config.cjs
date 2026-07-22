@@ -21,7 +21,7 @@ const trackerDataDirectory = process.env.INSTALL_TRACKER_DATA_DIR
     ? path.join(process.env.DATA_DIR, "install-tracker")
     : path.join(__dirname, "data/install-tracker"));
 const trackerTimeZone = process.env.INSTALL_TRACKER_TIME_ZONE || readEnvValue("INSTALL_TRACKER_TIME_ZONE") || "Asia/Shanghai";
-const trackerTrustProxy = process.env.INSTALL_TRACKER_TRUST_PROXY || readEnvValue("INSTALL_TRACKER_TRUST_PROXY") || "false";
+const trackerTrustProxy = process.env.INSTALL_TRACKER_TRUST_PROXY || readEnvValue("INSTALL_TRACKER_TRUST_PROXY") || "true";
 module.exports = {
   apps: [
     {

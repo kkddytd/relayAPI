@@ -135,6 +135,26 @@ describe("installation tracker", () => {
     }
   });
 
+  it("trusts loopback proxy headers by default for proxied reports", async () => {
+    const tracker = createInstallTracker({ dataDirectory: temporaryDirectory() });
+    const baseUrl = await listen(tracker);
+    try {
+      const response = await fetch(`${baseUrl}/api/v1/installations/report`, {
+        method: "POST",
+        headers: { "x-forwarded-for": "203.0.113.7" },
+      });
+      expect(response.status).toBe(204);
+      const db = new Database(tracker.databasePath, { readonly: true });
+      try {
+        expect(db.prepare("SELECT ip_address FROM installation_events").pluck().get()).toBe("203.0.113.7");
+      } finally {
+        db.close();
+      }
+    } finally {
+      await stop(tracker);
+    }
+  });
+
   it("migrates an existing installation database before recording source IPs", async () => {
     const dataDirectory = temporaryDirectory();
     const databasePath = path.join(dataDirectory, "installations.sqlite");

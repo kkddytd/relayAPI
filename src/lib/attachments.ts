@@ -32,6 +32,7 @@ export interface AttachmentAnalysisItem {
     | "upstream_returned_invalid_json"
     | "upstream_request_failed"
     | "attachment_not_found"
+    | "pdf_preview_failed"
     | "attachment_analysis_failed"
     | string;
   requested_model?: string;
@@ -44,12 +45,17 @@ export interface AttachmentAnalysisItem {
   protocol_fallback_reason?: string | null;
   analysis_attempts?: number;
   upstream_message_id?: string | null;
-  delivery_mode?: "native" | "extracted" | "sampled" | "byte-summary" | null;
+  delivery_mode?: "native" | "pdf-preview" | "extracted" | "sampled" | "byte-summary" | null;
   coverage_percent?: number | null;
   format_retry?: boolean;
   native_optimized?: boolean;
   transmitted_media_type?: string | null;
   transmitted_size_bytes?: number | null;
+  pdf_preview_generated?: boolean;
+  pdf_page_count?: number | null;
+  pdf_preview_pages?: number[];
+  pdf_preview_backend?: "graphicsmagick" | "imagemagick" | null;
+  pdf_preview_error?: string | null;
   analysis?: {
     attachment_received?: boolean;
     attachment_type?: "image" | "document" | "source_code" | "structured_data" | "text" | "archive" | "other" | "unknown" | string;

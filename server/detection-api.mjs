@@ -3458,8 +3458,8 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
       "/api/v1/detections": {
         post: {
           summary: "Run a synchronous model detection",
-          description: "A detector bearer key, localhost request, or explicitly trusted/verified Web session authenticates this service. The public anonymous Web session is intentionally not accepted here. Send JSON for a request that references legacy uploaded attachments, or send multipart/form-data with a request JSON field and files for one-step attachment testing. upstream_api_key is sent only to the target endpoint.",
-          security: [{ bearerAuth: [] }, { webSession: [] }],
+          description: "Programmatic calls use a detector bearer key; direct localhost calls may omit it when no detector key is configured. The browser UI uses separate verified Web routes. Send JSON for a request that references legacy uploaded attachments, or send multipart/form-data with a request JSON field and files for one-step attachment testing. upstream_api_key is sent only to the target endpoint.",
+          security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
@@ -3509,7 +3509,7 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
         post: {
           summary: "Upload arbitrary attachments",
           description: "Streams every multipart file to persistent local attachment storage without extension, MIME, content, count, or application-level file-size checks. Use returned IDs in DetectionRequest.attachments.",
-          security: [{ bearerAuth: [] }, { webSession: [] }],
+          security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
             content: {
@@ -3547,8 +3547,8 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
       "/api/v1/attachments/{attachmentId}": {
         delete: {
           summary: "Delete an unreferenced attachment",
-          description: "Deletes an attachment owned by the current bearer or anonymous Web session. Attachments referenced by saved history return 409.",
-          security: [{ bearerAuth: [] }, { webSession: [] }],
+          description: "Deletes an attachment owned by the current detector API credential. Attachments referenced by saved history return 409.",
+          security: [{ bearerAuth: [] }],
           parameters: [{
             name: "attachmentId",
             in: "path",
@@ -3569,7 +3569,7 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
               }),
             },
             400: errorResponse("Invalid attachment ID"),
-            401: errorResponse("Missing or invalid detector API key or Web session"),
+            401: errorResponse("Missing or invalid detector API key"),
             404: errorResponse("Attachment does not exist in this session"),
             409: errorResponse("Attachment is referenced by saved history"),
           },
@@ -3620,12 +3620,6 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
           type: "http",
           scheme: "bearer",
           description: "Detector API key, not the upstream provider key. When no detector keys are configured, localhost calls may omit this header.",
-        },
-        webSession: {
-          type: "apiKey",
-          in: "cookie",
-          name: "kk_web_session",
-          description: "Signed anonymous HttpOnly session issued automatically by a trusted Web deployment. API clients must retain this cookie between attachment upload and detection.",
         },
       },
       schemas: {
@@ -3867,7 +3861,7 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
                   url: { type: "string", description: "Browser URL for the latest uploaded file with this original filename." },
                   status: { type: "string" },
                   recognition_status: { type: "string", enum: ["recognized", "not-recognized"], description: "Whether the model returned any grounded observation of this attachment." },
-                  recognition_reason: { type: "string", enum: ["model_returned_grounded_attachment_observation", "model_did_not_observe_attachment", "model_returned_invalid_response", "upstream_returned_invalid_json", "upstream_request_failed", "attachment_not_found", "attachment_analysis_failed"], description: "Machine-readable reason for the recognition result." },
+                  recognition_reason: { type: "string", enum: ["model_returned_grounded_attachment_observation", "model_did_not_observe_attachment", "model_returned_invalid_response", "upstream_returned_invalid_json", "upstream_request_failed", "attachment_not_found", "pdf_preview_failed", "attachment_analysis_failed"], description: "Machine-readable reason for the recognition result." },
                   requested_model: { type: "string", description: "Model selected for the primary detection and first attachment attempt." },
                   analysis_model: { type: "string", description: "Actual model that produced the attachment analysis." },
                   model_fallback: { type: "boolean", description: "True when a configured visual fallback model produced the attachment analysis." },
@@ -3878,12 +3872,17 @@ export function createOpenApiDocument(serverUrl = "http://127.0.0.1:6722") {
                   protocol_fallback_reason: { type: ["string", "null"], enum: ["visual_route_did_not_observe_attachment", null] },
                   analysis_attempts: { type: "integer", minimum: 0, description: "Total attachment-analysis upstream attempts across model and protocol routes." },
                   upstream_message_id: { type: ["string", "null"] },
-                  delivery_mode: { type: ["string", "null"], enum: ["native", "extracted", "sampled", "byte-summary", null] },
+                  delivery_mode: { type: ["string", "null"], enum: ["native", "pdf-preview", "extracted", "sampled", "byte-summary", null] },
                   coverage_percent: { type: ["number", "null"], minimum: 0, maximum: 100 },
                   format_retry: { type: "boolean", description: "True when the first model response was empty or structurally invalid and the attachment was analyzed again." },
                   native_optimized: { type: "boolean", description: "True when only the model-bound image copy was resized or re-encoded; the stored original is unchanged." },
                   transmitted_media_type: { type: ["string", "null"] },
                   transmitted_size_bytes: { type: ["integer", "null"], minimum: 0 },
+                  pdf_preview_generated: { type: "boolean" },
+                  pdf_page_count: { type: ["integer", "null"], minimum: 1 },
+                  pdf_preview_pages: { type: "array", items: { type: "integer", minimum: 1 } },
+                  pdf_preview_backend: { type: ["string", "null"], enum: ["graphicsmagick", "imagemagick", null] },
+                  pdf_preview_error: { type: ["string", "null"] },
                   analysis: { type: ["object", "null"], additionalProperties: true },
                   verification: { type: ["object", "null"], additionalProperties: true },
                   error: { type: ["string", "null"] },
