@@ -135,6 +135,28 @@ describe("installation tracker", () => {
     }
   });
 
+  it("deduplicates retried installation events without changing legacy empty reports", async () => {
+    const tracker = createInstallTracker({ dataDirectory: temporaryDirectory(), trustProxy: false });
+    const baseUrl = await listen(tracker);
+    try {
+      const headers = { "idempotency-key": "relayapi-test-install-event" };
+      expect(await fetch(`${baseUrl}/api/v1/installations/report`, { method: "POST", headers })).toHaveProperty("status", 204);
+      expect(await fetch(`${baseUrl}/api/v1/installations/report`, { method: "POST", headers })).toHaveProperty("status", 204);
+      expect(await fetch(`${baseUrl}/api/v1/installations/report`, { method: "POST" })).toHaveProperty("status", 204);
+      expect(await fetch(`${baseUrl}/api/v1/installations/report`, { method: "POST" })).toHaveProperty("status", 204);
+      expect(tracker.stats()).toMatchObject({ total: 3, today: 3, unique_ips: 1 });
+
+      const invalid = await fetch(`${baseUrl}/api/v1/installations/report`, {
+        method: "POST",
+        headers: { "idempotency-key": "invalid/event/key" },
+      });
+      expect(invalid.status).toBe(400);
+      expect(tracker.stats().total).toBe(3);
+    } finally {
+      await stop(tracker);
+    }
+  });
+
   it("trusts loopback proxy headers by default for proxied reports", async () => {
     const tracker = createInstallTracker({ dataDirectory: temporaryDirectory() });
     const baseUrl = await listen(tracker);
@@ -173,12 +195,20 @@ describe("installation tracker", () => {
     const tracker = createInstallTracker({ dataDirectory, trustProxy: false });
     const baseUrl = await listen(tracker);
     try {
-      expect(await fetch(`${baseUrl}/api/v1/installations/report`, { method: "POST" })).toHaveProperty("status", 204);
+      expect(await fetch(`${baseUrl}/api/v1/installations/report`, {
+        method: "POST",
+        headers: { "idempotency-key": "relayapi-migrated-install-event" },
+      })).toHaveProperty("status", 204);
       const db = new Database(databasePath, { readonly: true });
       try {
         const columns = db.prepare("PRAGMA table_info(installation_events)").all();
         expect(columns.some((column) => column.name === "ip_address")).toBe(true);
+        expect(columns.some((column) => column.name === "event_id")).toBe(true);
         expect(db.prepare("SELECT ip_address FROM installation_events ORDER BY id").pluck().all()).toEqual(["", "127.0.0.1"]);
+        expect(db.prepare("SELECT event_id FROM installation_events ORDER BY id").pluck().all()).toEqual([
+          "",
+          "relayapi-migrated-install-event",
+        ]);
       } finally {
         db.close();
       }
@@ -199,7 +229,7 @@ describe("installation tracker", () => {
       expect(page.status).toBe(200);
       expect(page.headers.get("content-type")).toContain("text/html");
       const pageBody = await page.text();
-      expect(pageBody).toContain("累计安装设备");
+      expect(pageBody).toContain("累计安装次数");
       expect(pageBody).not.toContain("今日安装上报");
       expect(css.headers.get("content-type")).toContain("text/css");
       expect(await css.text()).toContain(".counter-line");

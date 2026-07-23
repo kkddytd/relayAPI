@@ -100,6 +100,15 @@ function clientIp(req, trustProxy) {
   return directAddress;
 }
 
+function installationEventId(req) {
+  const header = Array.isArray(req.headers["idempotency-key"])
+    ? req.headers["idempotency-key"][0]
+    : req.headers["idempotency-key"];
+  if (header === undefined) return "";
+  const value = String(header).trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) ? value : null;
+}
+
 function recentLocalDates(timeZone, count) {
   const [year, month, day] = localDate(timeZone).split("-").map(Number);
   const todayUtc = Date.UTC(year, month - 1, day);
@@ -139,7 +148,8 @@ export function createInstallTracker({
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       received_at TEXT NOT NULL,
       local_date TEXT NOT NULL,
-      ip_address TEXT NOT NULL DEFAULT ''
+      ip_address TEXT NOT NULL DEFAULT '',
+      event_id TEXT NOT NULL DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS installation_events_local_date_idx
       ON installation_events(local_date);
@@ -149,12 +159,18 @@ export function createInstallTracker({
   if (!columns.some((column) => column.name === "ip_address")) {
     db.exec("ALTER TABLE installation_events ADD COLUMN ip_address TEXT NOT NULL DEFAULT ''");
   }
+  if (!columns.some((column) => column.name === "event_id")) {
+    db.exec("ALTER TABLE installation_events ADD COLUMN event_id TEXT NOT NULL DEFAULT ''");
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS installation_events_ip_address_idx
       ON installation_events(ip_address);
+    CREATE UNIQUE INDEX IF NOT EXISTS installation_events_event_id_idx
+      ON installation_events(event_id)
+      WHERE event_id <> '';
   `);
 
-  const insertEvent = db.prepare("INSERT INTO installation_events(received_at, local_date, ip_address) VALUES (?, ?, ?)");
+  const insertEvent = db.prepare("INSERT OR IGNORE INTO installation_events(received_at, local_date, ip_address, event_id) VALUES (?, ?, ?, ?)");
   const totalStatement = db.prepare("SELECT COUNT(*) AS value FROM installation_events");
   const todayStatement = db.prepare("SELECT COUNT(*) AS value FROM installation_events WHERE local_date = ?");
   const uniqueIpsStatement = db.prepare("SELECT COUNT(DISTINCT ip_address) AS value FROM installation_events WHERE ip_address <> ''");
@@ -234,15 +250,20 @@ export function createInstallTracker({
 
     if (pathname === "/api/v1/installations/report") {
       if (req.method !== "POST") return sendJson(res, 405, { ok: false, error: "method_not_allowed" });
+      const eventId = installationEventId(req);
+      if (eventId === null) {
+        req.resume();
+        return sendJson(res, 400, { ok: false, error: "invalid_idempotency_key" });
+      }
       req.on("error", () => {
         if (!res.headersSent) sendJson(res, 400, { ok: false, error: "request_failed" });
       });
       req.on("end", () => {
-        insertEvent.run(new Date().toISOString(), localDate(timeZone), clientIp(req, trustProxy));
+        const result = insertEvent.run(new Date().toISOString(), localDate(timeZone), clientIp(req, trustProxy), eventId);
         res.statusCode = 204;
         res.setHeader("Cache-Control", "no-store");
         res.end();
-        broadcast();
+        if (result.changes > 0) broadcast();
       });
       req.resume();
       return;

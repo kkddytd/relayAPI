@@ -446,8 +446,11 @@ test("installation reports update the web counter over SSE", async ({ page, requ
   const counter = page.locator('[title="客户端安装上报"]');
   await expect(counter).toContainText(String(before.total));
 
-  const report = await request.post("/api/v1/installations/report");
+  const headers = { "idempotency-key": `relayapi-e2e-${Date.now()}` };
+  const report = await request.post("/api/v1/installations/report", { headers });
+  const replay = await request.post("/api/v1/installations/report", { headers });
   expect(report.status()).toBe(204);
+  expect(replay.status()).toBe(204);
   await expect(counter).toContainText(String(before.total + 1));
 });
 

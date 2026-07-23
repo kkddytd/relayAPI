@@ -38,7 +38,7 @@ export const dashboardHtml = `<!doctype html>
             <strong id="total-count" data-width="normal" aria-live="polite" aria-atomic="true">--</strong>
             <span class="counter-bracket" aria-hidden="true">]</span>
           </div>
-          <h1 id="counter-label">累计安装设备</h1>
+          <h1 id="counter-label">累计安装次数</h1>
         </section>
       </main>
 

@@ -130,7 +130,9 @@ if [[ "$healthy" != "true" ]]; then
   rm -f "$pid_file"
   exit 1
 fi
-bash scripts/report-installation.sh "$runtime_directory/.installation-reported" || true
+if ! bash scripts/report-installation.sh "$runtime_directory/.installation-reported"; then
+  printf '%s\n' "安装统计上报暂时失败，待上报记录已保存在本机，下次部署会自动重试。" >&2
+fi
 printf '%s\n' "relayAPI 已在后台启动（PID：${server_pid}）。"
 printf '%s\n' "日志文件：$log_file"
 printf '%s\n' "停止命令：kill ${server_pid}（或执行 kill \"\$(cat '$pid_file')\"）"

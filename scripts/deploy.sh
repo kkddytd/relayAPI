@@ -50,7 +50,9 @@ if ! docker compose up -d --build --wait --wait-timeout "${RELAYAPI_START_TIMEOU
 fi
 
 install_marker="${INSTALL_REPORT_MARKER:-${RELAYAPI_DATA_DIR:-$ROOT_DIR/data}/.installation-reported}"
-bash scripts/report-installation.sh "$install_marker" || true
+if ! bash scripts/report-installation.sh "$install_marker"; then
+  printf '%s\n' "安装统计上报暂时失败，待上报记录已保存在本机，下次部署会自动重试。" >&2
+fi
 
 detector_api_key="$(sed -n 's/^DETECTOR_API_KEYS=//p' .env 2>/dev/null | head -n 1)"
 printf '\n%s\n' "relayAPI 已启动。"

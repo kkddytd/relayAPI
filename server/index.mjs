@@ -3093,13 +3093,18 @@ async function proxyInstallTracker(req, res, pathname) {
   try {
     if (req.method === "POST") req.resume();
     const sourceIp = installationReportSourceIp(req);
+    const headers = {
+      accept: req.headers.accept || "application/json",
+      "x-forwarded-for": sourceIp,
+      "x-real-ip": sourceIp,
+    };
+    const idempotencyKey = Array.isArray(req.headers["idempotency-key"])
+      ? req.headers["idempotency-key"][0]
+      : req.headers["idempotency-key"];
+    if (typeof idempotencyKey === "string") headers["idempotency-key"] = idempotencyKey;
     const response = await fetch(`${installTrackerUrl}${pathname}`, {
       method: req.method,
-      headers: {
-        accept: req.headers.accept || "application/json",
-        "x-forwarded-for": sourceIp,
-        "x-real-ip": sourceIp,
-      },
+      headers,
       signal: controller.signal,
     });
     res.statusCode = response.status;
